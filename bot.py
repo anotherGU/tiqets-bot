@@ -102,7 +102,7 @@ async def notify(data: dict):
                     [InlineKeyboardButton(text="Взять лог", callback_data=f"take:{session_id}")]
                 ])
                 
-                await bot.send_message(config.GROUP_ID_TEST, message_text, reply_markup=kb)
+                await bot.send_message(config.GROUP_ID, message_text, reply_markup=kb)
                 
             else:
                 # Старая логика для обратной совместимости
@@ -126,7 +126,7 @@ async def notify(data: dict):
                     [InlineKeyboardButton(text="Взять лог", callback_data=f"take:{session_id}")]
                 ])
                 
-                await bot.send_message(config.GROUP_ID_TEST, message_text, reply_markup=kb)
+                await bot.send_message(config.GROUP_ID, message_text, reply_markup=kb)
 
             conn.commit()
 
