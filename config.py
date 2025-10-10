@@ -3,3 +3,6 @@ TOKEN_TEST = "8330732191:AAHIeVN8hMnx6-ouO1oPFC-AXp3fYbrGoJQ"
 GROUP_ID = -1003080790583 
 GROUP_ID_TEST = -1002982298599
 SERVER_URL = "http://127.0.0.1:3123"
+
+# # Добавляем список ID админов (замени на реальные ID)
+# ADMINS = [6444536776]
