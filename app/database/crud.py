@@ -1,65 +1,74 @@
-import sqlite3
-import datetime
-from contextlib import contextmanager
+# database/crud.py
+from . import get_db_connection
+import sys
+import os
 
-@contextmanager
-def get_db_connection():
-    conn = sqlite3.connect('logs.db')
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-def create_or_update_log(session_id, masked_pan, booking_id, client_id, step):
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO logs (session_id, masked_pan, booking_id, client_id, step, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (session_id, masked_pan, booking_id, client_id, step, datetime.datetime.now()))
-        
-        # Сохраняем карту в историю (только если есть номер карты)
-        if masked_pan and len(masked_pan.replace(' ', '')) >= 6:
-            clean_card = masked_pan.replace(' ', '')
-            cursor.execute('''
-                INSERT OR IGNORE INTO card_history (session_id, card_number, booking_id, client_id)
-                VALUES (?, ?, ?, ?)
-            ''', (session_id, clean_card, booking_id, client_id))
-        
-        conn.commit()
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 def get_log_by_session(session_id):
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM logs WHERE session_id = ?', (session_id,))
-        return cursor.fetchone()
+    """Получает лог по session_id"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT * FROM logs WHERE session_id = ?', (session_id,))
+    log = cursor.fetchone()
+    
+    conn.close()
+    return dict(log) if log else None
 
-def update_log_taken_by(session_id, user_id):
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
+def create_or_update_log(session_id, masked_pan, booking_id, client_id, step):
+    """Создает или обновляет лог, сохраняя taken_by при обновлении"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    existing_log = get_log_by_session(session_id)
+    
+    if existing_log:
+        # Сохраняем taken_by из существующей записи
+        taken_by = existing_log.get('taken_by')
+        
+        # Обновляем запись
         cursor.execute('''
             UPDATE logs 
-            SET taken_by = ?, updated_at = ?
+            SET masked_pan = ?, booking_id = ?, client_id = ?, step = ?, updated_at = datetime('now')
             WHERE session_id = ?
-        ''', (user_id, datetime.datetime.now(), session_id))
-        conn.commit()
-
-def find_card_duplicates(card_number):
-    """Находит все случаи использования карты"""
-    if not card_number or len(card_number.replace(' ', '')) < 6:
-        return []
-        
-    clean_card = card_number.replace(' ', '')
-    
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
+        ''', (masked_pan, booking_id, client_id, step, session_id))
+    else:
+        # Создаем новую запись
         cursor.execute('''
-            SELECT ch.session_id, ch.card_number, ch.booking_id, ch.client_id, ch.created_at,
-                   l.taken_by, l.step
-            FROM card_history ch
-            LEFT JOIN logs l ON ch.session_id = l.session_id
-            WHERE ch.card_number = ?
-            ORDER BY ch.created_at DESC
-        ''', (clean_card,))
-        return cursor.fetchall()
+            INSERT INTO logs (session_id, masked_pan, booking_id, client_id, step, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        ''', (session_id, masked_pan, booking_id, client_id, step))
+    
+    conn.commit()
+    conn.close()
+    return get_log_by_session(session_id)
+
+def update_log_taken_by(session_id, user_id):
+    """Обновляет taken_by для лога"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE logs 
+        SET taken_by = ?, updated_at = datetime('now')
+        WHERE session_id = ?
+    ''', (user_id, session_id))
+    
+    conn.commit()
+    conn.close()
+
+def find_card_duplicates(masked_pan):
+    """Находит дубликаты карт"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT * FROM logs 
+        WHERE masked_pan = ? 
+        ORDER BY created_at DESC
+    ''', (masked_pan,))
+    
+    duplicates = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return duplicates

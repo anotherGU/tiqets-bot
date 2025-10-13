@@ -68,7 +68,9 @@ async def check_online_status(callback: types.CallbackQuery):
     session_id = callback.data.split(":")[1]
     
     log = get_log_by_session(session_id)
-
+    if not log or log['taken_by'] != callback.from_user.id:
+        await callback.answer("У вас нет доступа к этому логу", show_alert=True)
+        return
     
     try:
         async with httpx.AsyncClient() as client:
