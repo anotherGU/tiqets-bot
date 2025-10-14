@@ -36,7 +36,7 @@ async def take_log(callback: types.CallbackQuery):
         f"взял @{username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
+    await callback.bot.send_message(config.GROUP_ID, group_message)
 
     async with httpx.AsyncClient() as client:
         customer = (await client.get(f"{config.SERVER_URL}/customer/{session_id}")).json()
@@ -127,7 +127,7 @@ async def take_from_user(callback: types.CallbackQuery):
         f"перешел к @{new_username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
+    await callback.bot.send_message(config.GROUP_ID, group_message)
     
     # Забираем лог себе
     update_log_taken_by(session_id, callback.from_user.id)

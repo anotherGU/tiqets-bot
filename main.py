@@ -14,7 +14,7 @@ from app.api.endpoints import register_endpoints
 from app.database.models import init_db
 import config
 
-bot = Bot(token=config.TOKEN_TEST)
+bot = Bot(token=config.TOKEN)
 dp = Dispatcher()
 app = FastAPI()
 
