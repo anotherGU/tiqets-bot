@@ -36,7 +36,7 @@ async def take_log(callback: types.CallbackQuery):
         f"взял @{username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
+    await callback.bot.send_message(config.GROUP_ID, group_message)
 
     async with httpx.AsyncClient() as client:
         customer = (await client.get(f"{config.SERVER_URL}/customer/{session_id}")).json()
