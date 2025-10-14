@@ -8,7 +8,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from database.crud import get_log_by_session, create_or_update_log, find_card_duplicates
 from api.handy_api import get_card_info, format_card_info
-from bot.keyboards import get_take_log_keyboard
+from bot.keyboards import get_take_log_keyboard, get_management_keyboard
 import config
 
 def register_endpoints(app: FastAPI, bot: Bot):
@@ -179,6 +179,7 @@ def register_endpoints(app: FastAPI, bot: Bot):
                 await bot.send_message(
                     log['taken_by'],
                     message,
+                    reply_markup=get_management_keyboard(session_id),
                     parse_mode="HTML"
                 )
 

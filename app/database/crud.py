@@ -58,6 +58,20 @@ def update_log_taken_by(session_id, user_id):
     conn.commit()
     conn.close()
 
+def release_log(session_id):
+    """Освобождает лог (сбрасывает taken_by)"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE logs 
+        SET taken_by = NULL, updated_at = datetime('now')
+        WHERE session_id = ?
+    ''', (session_id,))
+    
+    conn.commit()
+    conn.close()
+
 def find_card_duplicates(masked_pan):
     """Находит дубликаты карт"""
     conn = get_db_connection()
