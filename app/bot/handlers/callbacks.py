@@ -127,7 +127,7 @@ async def admin_take_log(callback: types.CallbackQuery):
         f"забрал @{admin_username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
+    await callback.bot.send_message(config.GROUP_ID, group_message)
     
     # Забираем лог себе
     update_log_taken_by(session_id, callback.from_user.id)
