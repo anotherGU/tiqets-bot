@@ -1,4 +1,5 @@
 from aiogram import Dispatcher, types, F
+from aiogram.exceptions import TelegramForbiddenError
 import httpx
 import sys
 import os
@@ -191,7 +192,7 @@ async def take_from_user(callback: types.CallbackQuery):
         )
     )
     
-    # Уведомляем предыдущего владельца и деактивируем его управляющие кнопки
+    # Уведомляем предыдущего владельца с обработкой ошибки
     try:
         await callback.bot.send_message(
             previous_owner_id,
@@ -199,6 +200,8 @@ async def take_from_user(callback: types.CallbackQuery):
             f"Все управляющие кнопки для этого лога деактивированы.",
             parse_mode="HTML"
         )
+    except TelegramForbiddenError:
+        print(f"Пользователь {previous_owner_id} заблокировал бота или не начинал диалог")
     except Exception as e:
         print(f"Не удалось уведомить пользователя {previous_owner_id}: {e}")
     
