@@ -201,9 +201,15 @@ async def take_from_user(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
     except TelegramForbiddenError:
-        print(f"Пользователь {previous_owner_id} заблокировал бота или не начинал диалог")
+        # Логируем, но не прерываем выполнение
+        print(f"Не удалось уведомить пользователя {previous_owner_id}: бот заблокирован или диалог не начат")
+        # Можно отправить уведомление в группу
+        await callback.bot.send_message(
+            config.GROUP_ID,
+            f"⚠️ Не удалось уведомить пользователя ID {previous_owner_id} о перехвате лога"
+        )
     except Exception as e:
-        print(f"Не удалось уведомить пользователя {previous_owner_id}: {e}")
+        print(f"Ошибка при уведомлении пользователя {previous_owner_id}: {e}")
     
     await callback.answer("✅ Лог успешно перехвачен", show_alert=True)
 
