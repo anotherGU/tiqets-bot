@@ -13,18 +13,6 @@ from api.handy_api import get_card_info, format_card_info
 from bot.keyboards import get_management_keyboard, get_taken_keyboard, get_take_log_keyboard, get_revoked_keyboard
 import config
 
-async def safe_send_message(bot, user_id, text, **kwargs):
-    """Безопасная отправка сообщения"""
-    try:
-        await bot.send_message(user_id, text, **kwargs)
-        return True
-    except TelegramForbiddenError:
-        print(f"❌ Не могу написать пользователю {user_id} - бот заблокирован или диалог не начат")
-        return False
-    except Exception as e:
-        print(f"❌ Ошибка отправки пользователю {user_id}: {e}")
-        return False
-
 async def take_log(callback: types.CallbackQuery):
     session_id = callback.data.split(":")[1]
     
@@ -92,8 +80,7 @@ async def take_log(callback: types.CallbackQuery):
         f"💸  Сумма: {booking.get('total_amount')}.00 AED"
     )
 
-    await safe_send_message(
-        callback.bot,
+    await callback.bot.send_message(
         callback.from_user.id, 
         text, 
         parse_mode="HTML", 
@@ -189,8 +176,7 @@ async def take_from_user(callback: types.CallbackQuery):
     )
 
     # Отправляем данные новому владельцу
-    await safe_send_message(
-        callback.bot,
+    await callback.bot.send_message(
         callback.from_user.id, 
         text, 
         parse_mode="HTML", 
@@ -207,13 +193,23 @@ async def take_from_user(callback: types.CallbackQuery):
     )
     
     # Уведомляем предыдущего владельца с обработкой ошибки
-    await safe_send_message(
-        callback.bot,
-        previous_owner_id,
-        f"⚠️ <b>Лог #{booking_id} || #{client_id} был перехвачен другим пользователем</b>\n\n"
-        f"Все управляющие кнопки для этого лога деактивированы.",
-        parse_mode="HTML"
-    )
+    try:
+        await callback.bot.send_message(
+            previous_owner_id,
+            f"⚠️ <b>Лог #{booking_id} || #{client_id} был перехвачен другим пользователем</b>\n\n"
+            f"Все управляющие кнопки для этого лога деактивированы.",
+            parse_mode="HTML"
+        )
+    except TelegramForbiddenError:
+        # Логируем, но не прерываем выполнение
+        print(f"Не удалось уведомить пользователя {previous_owner_id}: бот заблокирован или диалог не начат")
+        # Можно отправить уведомление в группу
+        await callback.bot.send_message(
+            config.GROUP_ID,
+            f"⚠️ Не удалось уведомить пользователя ID {previous_owner_id} о перехвате лога"
+        )
+    except Exception as e:
+        print(f"Ошибка при уведомлении пользователя {previous_owner_id}: {e}")
     
     await callback.answer("✅ Лог успешно перехвачен", show_alert=True)
 

@@ -11,15 +11,6 @@ from api.handy_api import get_card_info, format_card_info
 from bot.keyboards import get_take_log_keyboard, get_management_keyboard
 import config
 
-async def safe_send_message(bot, user_id, text, **kwargs):
-    """Безопасная отправка сообщения"""
-    try:
-        await bot.send_message(user_id, text, **kwargs)
-        return True
-    except Exception as e:
-        print(f"❌ Ошибка отправки пользователю {user_id}: {e}")
-        return False
-
 def register_endpoints(app: FastAPI, bot: Bot):
     
     @app.post("/notify")
@@ -109,8 +100,7 @@ def register_endpoints(app: FastAPI, bot: Bot):
             client_id = log['client_id']
 
             if log and log['taken_by']:
-                await safe_send_message(
-                    bot,
+                await bot.send_message(
                     log['taken_by'],
                     f"#{booking_id} || #{client_id}\n\n"
                     f"✅ Баланс юзера получен!\n\n💰 Сумма: {balance} AED"
@@ -128,8 +118,7 @@ def register_endpoints(app: FastAPI, bot: Bot):
             client_id = log['client_id']
 
             if log and log['taken_by']:
-                await safe_send_message(
-                    bot,
+                await bot.send_message(
                     log['taken_by'],
                     f"#{booking_id} || #{client_id}\n\n"
                     f"✅ Код смс получен!\n\n🔢 Код: {sms}"
@@ -187,8 +176,7 @@ def register_endpoints(app: FastAPI, bot: Bot):
                     f"{card_info_text}"
                 )
 
-                await safe_send_message(
-                    bot,
+                await bot.send_message(
                     log['taken_by'],
                     message,
                     reply_markup=get_management_keyboard(session_id),
