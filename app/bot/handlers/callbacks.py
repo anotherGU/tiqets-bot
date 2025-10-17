@@ -37,7 +37,7 @@ async def take_log(callback: types.CallbackQuery):
         f"взял @{username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID, group_message)
+    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
 
     async with httpx.AsyncClient() as client:
         customer = (await client.get(f"{config.SERVER_URL}/customer/{session_id}")).json()
@@ -128,7 +128,7 @@ async def take_from_user(callback: types.CallbackQuery):
         f"перешел к @{new_username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID, group_message)
+    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
     
     # Забираем лог себе
     update_log_taken_by(session_id, callback.from_user.id)
@@ -205,7 +205,7 @@ async def take_from_user(callback: types.CallbackQuery):
         print(f"Не удалось уведомить пользователя {previous_owner_id}: бот заблокирован или диалог не начат")
         # Можно отправить уведомление в группу
         await callback.bot.send_message(
-            config.GROUP_ID,
+            config.GROUP_ID_TEST,
             f"⚠️ Не удалось уведомить пользователя ID {previous_owner_id} о перехвате лога"
         )
     except Exception as e:

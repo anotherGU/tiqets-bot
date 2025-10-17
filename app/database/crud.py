@@ -86,3 +86,18 @@ def find_card_duplicates(masked_pan):
     duplicates = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return duplicates
+
+def get_unique_logs_last_24h():
+    """Возвращает уникальные логи за последние 24 часа"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT DISTINCT masked_pan, booking_id, client_id, created_at
+        FROM logs
+        WHERE datetime(created_at) >= datetime('now', '-1 day')
+        ORDER BY created_at DESC
+    """)
+    logs = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return logs
