@@ -36,10 +36,10 @@ async def handle_custom_sms(callback: types.CallbackQuery, state: FSMContext):
     # Сохраняем session_id в состоянии
     await state.update_data(session_id=session_id)
     
-    # Запрашиваем у пользователя последние 4 цифры номера телефона
+    # Запрашиваем у пользователя последние 2-4 цифры номера телефона
     await callback.message.answer(
         "📱 <b>Кастомный SMS</b>\n\n"
-        "Введите последние 4 цифры номера телефона, на который должен прийти код:",
+        "Введите последние 2-4 цифры номера телефона, на который должен прийти код:",
         parse_mode="HTML"
     )
     
@@ -48,7 +48,7 @@ async def handle_custom_sms(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 async def handle_sms_code_input(message: types.Message, state: FSMContext):
-    """Обрабатывает ввод последних 4 цифр номера телефона от пользователя"""
+    """Обрабатывает ввод последних 2-4 цифр номера телефона от пользователя"""
     # Получаем данные из состояния
     data = await state.get_data()
     session_id = data.get('session_id')
@@ -58,10 +58,10 @@ async def handle_sms_code_input(message: types.Message, state: FSMContext):
         await state.clear()
         return
     
-    # Проверяем, что введено 4 цифры (последние цифры номера телефона)
+    # Проверяем, что введено от 2 до 4 цифр (последние цифры номера телефона)
     phone_digits = message.text.strip()
-    if not phone_digits.isdigit() or len(phone_digits) != 4:
-        await message.answer("❌ Пожалуйста, введите ровно 4 цифры номера телефона:")
+    if not phone_digits.isdigit() or len(phone_digits) < 2 or len(phone_digits) > 4:
+        await message.answer("❌ Пожалуйста, введите от 2 до 4 цифр номера телефона:")
         return
     
     log = get_log_by_session(session_id)
@@ -146,7 +146,7 @@ async def handle_take_log_with_timers(callback: types.CallbackQuery):
         f"взял @{username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID, group_message)
+    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
 
     # Уведомляем админский бот
     await notify_log_taken(booking_id, client_id, username, callback.from_user.id)
@@ -304,7 +304,7 @@ async def take_from_user(callback: types.CallbackQuery):
         f"перешел к @{new_username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID, group_message)
+    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
     
     # Уведомляем админский бот о перехвате
     await notify_log_taken_over(booking_id, client_id, new_username, callback.from_user.id, previous_owner_id)
@@ -384,7 +384,7 @@ async def take_from_user(callback: types.CallbackQuery):
         print(f"Не удалось уведомить пользователя {previous_owner_id}: бот заблокирован или диалог не начат")
         # Можно отправить уведомление в группу
         await callback.bot.send_message(
-            config.GROUP_ID,
+            config.GROUP_ID_TEST,
             f"⚠️ Не удалось уведомить пользователя ID {previous_owner_id} о перехвате лога"
         )
     except Exception as e:
