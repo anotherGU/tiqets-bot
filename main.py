@@ -8,6 +8,7 @@ import asyncio
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
 from fastapi import FastAPI
 import uvicorn
 from app.bot.handlers.callbacks import register_callbacks
@@ -23,8 +24,9 @@ from admin_bot import (
     start_admin_bot
 )
 
+storage = MemoryStorage()
 bot = Bot(token=config.TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(storage=storage)
 app = FastAPI()
 
 async def main():
