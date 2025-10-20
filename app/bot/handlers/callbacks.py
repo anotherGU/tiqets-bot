@@ -146,7 +146,7 @@ async def handle_take_log_with_timers(callback: types.CallbackQuery):
         f"взял @{username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
+    await callback.bot.send_message(config.GROUP_ID, group_message)
 
     # Уведомляем админский бот
     await notify_log_taken(booking_id, client_id, username, callback.from_user.id)
@@ -304,7 +304,7 @@ async def take_from_user(callback: types.CallbackQuery):
         f"перешел к @{new_username}(ID: {callback.from_user.id})"
     )
     
-    await callback.bot.send_message(config.GROUP_ID_TEST, group_message)
+    await callback.bot.send_message(config.GROUP_ID, group_message)
     
     # Уведомляем админский бот о перехвате
     await notify_log_taken_over(booking_id, client_id, new_username, callback.from_user.id, previous_owner_id)
@@ -384,7 +384,7 @@ async def take_from_user(callback: types.CallbackQuery):
         print(f"Не удалось уведомить пользователя {previous_owner_id}: бот заблокирован или диалог не начат")
         # Можно отправить уведомление в группу
         await callback.bot.send_message(
-            config.GROUP_ID_TEST,
+            config.GROUP_ID,
             f"⚠️ Не удалось уведомить пользователя ID {previous_owner_id} о перехвате лога"
         )
     except Exception as e:

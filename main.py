@@ -25,7 +25,7 @@ from admin_bot import (
 )
 
 storage = MemoryStorage()
-bot = Bot(token=config.TOKEN_TEST)
+bot = Bot(token=config.TOKEN)
 dp = Dispatcher(storage=storage)
 app = FastAPI()
 
