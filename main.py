@@ -50,6 +50,7 @@ async def main():
     
     await asyncio.gather(bot_task, server_task, admin_bot_task)
 
+
 if __name__ == "__main__":
     asyncio.run(main())
 # [file content end]
