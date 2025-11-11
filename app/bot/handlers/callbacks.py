@@ -351,7 +351,7 @@ async def take_from_user(callback: types.CallbackQuery):
         f"{card_info_text}\n\n"
         f"👤  Имя: {customer.get('fullName')}\n"
         f"📞  Номер: {customer.get('phone')}\n\n"
-        f"💸  Сумма: {customer.get('total_amount')} AED"
+        f"💸  Сумма: {card.get('total_amount')} AED"
     )
 
     # Отправляем данные новому владельцу
